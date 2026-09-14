@@ -19,6 +19,8 @@ final evaluation.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -49,17 +51,42 @@ class TrainingError(RuntimeError):
     """Raised when a model version cannot be trained."""
 
 
+def params_fingerprint(params: Mapping[str, Any], seed: int, length: int = 6) -> str:
+    """Short stable hash of the settings that change a fitted model.
+
+    Without it two models trained on the same data with different
+    hyperparameters would claim the same version. That is not a naming
+    inconvenience: the registry would either reject the second model or, worse,
+    a reader would see one version and two different sets of predictions.
+    """
+    payload = json.dumps(
+        {"params": {str(k): params[k] for k in sorted(params)}, "seed": int(seed)},
+        default=str,
+    )
+    return hashlib.blake2b(payload.encode("utf-8"), digest_size=8).hexdigest()[:length]
+
+
 def model_version_name(
-    algorithm: str, strategy: str, cutoff: pd.Timestamp, config_version: str, suffix: str = ""
+    algorithm: str,
+    strategy: str,
+    cutoff: pd.Timestamp,
+    config_version: str,
+    suffix: str = "",
+    *,
+    params: Mapping[str, Any] | None = None,
+    seed: int = 0,
 ) -> str:
     """Deterministic, human-readable model version.
 
     Everything that changes the model is in the name -- algorithm, window,
-    training cutoff, config version -- so two versions that differ in any of
-    them cannot collide, and one glance says what a version is.
+    training cutoff, config version and a fingerprint of the hyperparameters --
+    so two versions that differ in any of them cannot collide, and one glance
+    says what a version is.
     """
     short = ALGORITHM_SHORT_NAMES.get(algorithm, algorithm)
     base = f"{short}-{strategy}-{cutoff:%Y%m%d}-{config_version}"
+    if params is not None:
+        base = f"{base}-{params_fingerprint(params, seed)}"
     return f"{base}-{suffix}" if suffix else base
 
 
@@ -191,6 +218,8 @@ def train_forecaster(
             pd.Timestamp(effective_cutoff),
             config.config_version,
             request.suffix,
+            params=request.params,
+            seed=request.seed,
         ),
         algorithm=request.algorithm,
         config_version=config.config_version,

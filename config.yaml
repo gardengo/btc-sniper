@@ -114,6 +114,18 @@ forecast:
     every_n_days_181_365: 14
   required_evaluation_horizons: [1, 7, 30, 90, 180, 365]
   quantiles: [0.025, 0.10, 0.25, 0.50, 0.75, 0.90, 0.975]
+  # How much of the forecast comes from the model rather than the baseline, per
+  # horizon. FROZEN from inner validation (MODEL_SPEC.md 6.5): the tree beats the
+  # no_change baseline in every fold at h=1, ties at h=7 and is worse from h=30
+  # outward. Serving the model everywhere would knowingly ship a worse forecast;
+  # a hard switch would put a visible jump in the curve at the boundary.
+  # These weights are not re-tuned per forecast -- a weight derived from recent
+  # performance is a model selected on the data it is about to be scored against.
+  blend:
+    enabled: true
+    full_model_horizon_days: 1     # model only up to here
+    baseline_only_horizon_days: 30 # baseline only from here
+    mode: linear                   # linear ramp between the two
   visualization:
     interpolation: pchip
     show_intervals: [0.50, 0.80, 0.95]
@@ -241,6 +253,7 @@ baselines:
     - no_change        # location = 0: the price is a random walk
     - drift            # location = long-run mean daily log return x h
     - rolling_return   # location = recent mean daily log return x h
+    - empirical        # location = historical MEDIAN h-day log return
   drift_min_samples: 365
   rolling_return_window_days: 90
   # Prediction intervals come from the empirical distribution of PAST h-day log

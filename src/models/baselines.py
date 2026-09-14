@@ -15,8 +15,10 @@ the forecast that matters most at long horizons.
 Each prediction is ``location + spread``:
 
 * **location** is the predicted median log return and is the only thing that
-  differs between the three baselines. `no_change` claims 0, `drift` claims the
-  long-run average, `rolling_return` claims the recent average.
+  differs between the baselines. `no_change` claims 0, `drift` claims the
+  long-run average, `rolling_return` claims the recent average, and `empirical`
+  claims the historical *median* -- which is what actually minimises absolute
+  error, and which none of the other three can express.
 * **spread** is shared: the empirical quantiles of *past* h-day log returns,
   recentered so their median is 0.
 
@@ -185,6 +187,28 @@ class Baseline(ABC):
         )
 
 
+class EmpiricalQuantileBaseline(Baseline):
+    """The next h days look like the last h-day periods did.
+
+    Location is the **historical median** of past h-day log returns, so combined
+    with the shared zero-centred spread this is simply the unconditional
+    empirical distribution, uncentred.
+
+    It exists because the other three all predict a median derived from a *mean*
+    or from zero, and none of them predicts the quantity that minimises absolute
+    error: the median itself. BTC's h-day return distribution is strongly
+    right-skewed at long horizons, so its mean and its median are far apart, and
+    a forecast family that cannot express "the typical year was up 20%" is
+    missing an obvious hypothesis rather than rejecting it.
+    """
+
+    name = "empirical"
+
+    def location(self, log_close: pd.Series, horizon_days: int) -> pd.Series:
+        window = _past_return_window(log_close, horizon_days, self.settings)
+        return window.quantile(MEDIAN_LEVEL).rename("location")
+
+
 class NoChangeBaseline(Baseline):
     """The price is a driftless random walk: the best guess is today's price."""
 
@@ -227,6 +251,7 @@ BASELINE_CLASSES: dict[str, type[Baseline]] = {
     NoChangeBaseline.name: NoChangeBaseline,
     DriftBaseline.name: DriftBaseline,
     RollingReturnBaseline.name: RollingReturnBaseline,
+    EmpiricalQuantileBaseline.name: EmpiricalQuantileBaseline,
 }
 
 # The reference every "improvement vs baseline" number is measured against.

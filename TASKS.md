@@ -85,14 +85,17 @@
 
 ## Phase 6. Forecast generation
 
-- [ ] daily production forecast job — **주의**: MODEL_SPEC.md 6.5절에 따라
-      h>=30에서는 트리가 baseline보다 나쁘다. 장기 horizon은 baseline 분포나
-      축소 혼합을 서빙해야 하고, 모델에서 나왔다는 이유로 더 나쁜 예측을
-      내보내면 안 된다.
-- [ ] quantile predictions
-- [ ] price conversion from log return
-- [ ] PCHIP visualization interpolation
-- [ ] forecast persistence — 스키마만 준비됨
+- [x] daily production forecast job (`jobs/generate_forecast.py`) — 마지막 확정
+      일봉에 anchor. 기본은 production 모델, `--model-version`은 연구용 경로다.
+- [x] forecast composition / blending (`src/forecast/blending.py`) —
+      MODEL_SPEC.md 7.2절. h=1은 모델, h>=30은 baseline, 사이는 선형 ramp.
+      quantile 함수의 볼록 결합이라 crossing을 만들 수 없다.
+- [x] quantile predictions — 7개 quantile, 저장 시 각 point에 source 기록
+- [x] price conversion from log return
+- [x] PCHIP visualization interpolation (`src/forecast/interpolate.py`) —
+      원점 anchor, 로그수익률 공간 보간, 표시 날짜마다 band 재정렬
+- [x] forecast persistence (`repositories.upsert_forecast`) — 같은 origin 재실행
+      시 교체된다. cascade delete로 고아 행이 남지 않는다.
 
 ## Phase 7. Realization and monitoring
 
@@ -132,6 +135,7 @@
       마지막 h개 행 NaN, feature 행렬과의 분리
 - [x] interval ordering tests (`tests/test_evaluation.py`)
 - [x] forecast horizon tests (`tests/test_timeutils_and_horizons.py`)
+- [x] forecast generation / blending / 보간 테스트 (`tests/test_forecast.py`)
 - [x] model reproducibility tests (`tests/test_models.py`) — 동일 데이터 재학습이
       비트 단위로 같은 예측을 내는지. subsample이 꺼져 있으면 seed가 무의미해
       검사가 공허하게 통과한다는 점도 함께 고정했다.

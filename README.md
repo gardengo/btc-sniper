@@ -73,9 +73,18 @@ python -m jobs.walk_forward                        # 선택된 설정으로 검�
 python -m jobs.walk_forward --compare-windows      # 학습 window 비교
 python -m jobs.walk_forward --compare-params       # 사전 선언된 하이퍼파라미터 비교
 
+# 7. 일일 forecast 생성 (production 모델 필요)
+python -m jobs.generate_forecast
+python -m jobs.generate_forecast --model-version <version>   # 연구용
+python -m jobs.generate_forecast --origin 2025-06-30         # 특정 날짜 backfill
+
 # 테스트
 python -m pytest
 ```
+
+forecast는 **마지막 확정 일봉**에 anchor한다. 실시간 가격은 `current_price`로
+함께 저장되지만 anchor가 되지 않는다 (`CLAUDE.md` 2.4절). 장중 움직임으로
+1년 forecast가 재생성되지 않는다.
 
 **현재 검증 결과 (MODEL_SPEC.md 6.5절)**: 트리 모델은 h=1일에서만 baseline을
 일관되게 이긴다(4/4 fold, +2.2%). h>=30일부터는 무조건부 경험 분포가 이기고

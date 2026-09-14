@@ -361,6 +361,7 @@ class ForecastConfig:
     quantiles: tuple[float, ...]
     interpolation: str
     show_intervals: tuple[float, ...]
+    blend: Mapping[str, Any]
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "ForecastConfig":
@@ -385,6 +386,7 @@ class ForecastConfig:
             show_intervals=tuple(
                 float(i) for i in visualization.get("show_intervals", [])
             ),
+            blend=dict(data.get("blend", {})),
         )
 
 
@@ -474,6 +476,11 @@ class AppConfig:
     baselines: BaselinesConfig
     storage: StorageConfig
     raw: Mapping[str, Any] = field(repr=False, default_factory=dict)
+
+    @property
+    def forecast_blend(self) -> Mapping[str, Any]:
+        """Blend policy mapping, kept untyped so the policy owns its parsing."""
+        return self.forecast.blend
 
     def section(self, name: str) -> Mapping[str, Any]:
         """Raw mapping for a config section (used by not-yet-typed sections)."""

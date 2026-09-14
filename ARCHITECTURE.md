@@ -64,6 +64,11 @@ Binance Realtime WebSocket ┘                    │
 
 입력: 마지막 확정 일봉까지의 feature sequence
 
+forecast는 모델 단독 출력이 아니라 모델과 baseline의 horizon별 가중 평균이다
+(MODEL_SPEC.md 7.2절). 검증에서 모델이 우위를 보인 구간에만 모델 가중치가
+들어간다. 각 point는 자기 출처(`model`/`blend`/`baseline`)를 함께 저장하므로
+저장된 예측값은 항상 무엇이 만들었는지 추적할 수 있다.
+
 출력:
 
 - point/median forecast
@@ -171,7 +176,7 @@ src/
   validation/  splits.py folds.py
   evaluation/  metrics.py evaluator.py baseline_eval.py walk_forward.py
   storage/     schema.sql db.py repositories.py
-  forecast/    horizons.py quantiles.py
+  forecast/    horizons.py quantiles.py blending.py generate.py interpolate.py
   monitoring/  data_report.py baseline_report.py validation_report.py markdown.py
   utils/       config.py logging.py timeutils.py provenance.py
 app/
@@ -184,7 +189,7 @@ jobs/
   evaluate_baselines.py     구현됨
   train_model.py            구현됨
   walk_forward.py           구현됨
-  generate_forecast.py      (Phase 6)
+  generate_forecast.py      구현됨
   evaluate_forecasts.py     (Phase 7)
   weekly_model_review.py    (Phase 8)
 tests/

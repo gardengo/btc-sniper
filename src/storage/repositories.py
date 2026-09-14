@@ -399,3 +399,167 @@ def load_performance_metrics(
         params.append(model_version)
     query += " ORDER BY horizon_days, model_version, metric_name"
     return pd.read_sql_query(query, connection, params=params)
+
+
+def upsert_forecast(
+    connection: sqlite3.Connection,
+    forecast: Any,
+    *,
+    source: str,
+    symbol: str,
+    timeframe: str,
+    run_id: str | None = None,
+    model_id: str | None = None,
+) -> int:
+    """Persist one :class:`src.forecast.generate.Forecast` and its points.
+
+    Idempotent on ``(source, symbol, timeframe, origin_date, model_version)``:
+    re-running the daily job for the same origin replaces that forecast rather
+    than accumulating near-duplicates. Points and quantiles cascade on delete,
+    so the replacement cannot leave orphaned rows from a longer horizon grid.
+    """
+    origin_date = forecast.origin_date.strftime("%Y-%m-%d")
+    existing = connection.execute(
+        "SELECT forecast_id FROM forecasts WHERE source = ? AND symbol = ? "
+        "AND timeframe = ? AND forecast_origin_date = ? AND model_version = ?",
+        (source, symbol, timeframe, origin_date, forecast.model_version),
+    ).fetchone()
+    if existing is not None:
+        connection.execute(
+            "DELETE FROM forecasts WHERE forecast_id = ?", (existing["forecast_id"],)
+        )
+
+    connection.execute(
+        "INSERT INTO forecasts (forecast_id, run_id, created_at, source, symbol, "
+        "timeframe, forecast_origin_date, origin_open_time_ms, origin_close, "
+        "current_price, model_id, model_version, feature_version, "
+        "horizon_grid_version, config_version, code_commit) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            forecast.forecast_id,
+            run_id,
+            forecast.created_at,
+            source,
+            symbol,
+            timeframe,
+            origin_date,
+            date_to_ms(forecast.origin_date.date()),
+            float(forecast.origin_close),
+            None if forecast.current_price is None else float(forecast.current_price),
+            model_id,
+            forecast.model_version,
+            forecast.feature_version,
+            forecast.horizon_grid_version,
+            forecast.config_version,
+            forecast.code_commit,
+        ),
+    )
+    connection.executemany(
+        "INSERT INTO forecast_points (forecast_id, horizon_days, target_date, "
+        "predicted_log_return, predicted_price, direction_predicted) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        [
+            (
+                forecast.forecast_id,
+                int(row["horizon_days"]),
+                str(row["target_date"]),
+                float(row["predicted_log_return"]),
+                float(row["predicted_price"]),
+                int(row["direction_predicted"]),
+            )
+            for row in forecast.points.to_dict("records")
+        ],
+    )
+    connection.executemany(
+        "INSERT INTO forecast_quantiles (forecast_id, horizon_days, quantile_label, "
+        "quantile, predicted_log_return, predicted_price, crossing_adjusted) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [
+            (
+                forecast.forecast_id,
+                int(row["horizon_days"]),
+                str(row["quantile_label"]),
+                float(row["quantile"]),
+                float(row["predicted_log_return"]),
+                float(row["predicted_price"]),
+                int(row["crossing_adjusted"]),
+            )
+            for row in forecast.quantiles.to_dict("records")
+        ],
+    )
+    logger.info(
+        "stored forecast %s (%s, %d horizons)",
+        forecast.forecast_id[:8],
+        origin_date,
+        len(forecast.points),
+    )
+    return len(forecast.points)
+
+
+def latest_forecast_row(
+    connection: sqlite3.Connection,
+    *,
+    source: str,
+    symbol: str,
+    timeframe: str = "1d",
+    model_version: str | None = None,
+) -> sqlite3.Row | None:
+    """Newest stored forecast, optionally for one model version."""
+    query = (
+        "SELECT * FROM forecasts WHERE source = ? AND symbol = ? AND timeframe = ?"
+    )
+    params: list[Any] = [source, symbol, timeframe]
+    if model_version is not None:
+        query += " AND model_version = ?"
+        params.append(model_version)
+    query += " ORDER BY forecast_origin_date DESC, created_at DESC LIMIT 1"
+    return connection.execute(query, params).fetchone()
+
+
+def load_forecast_points(
+    connection: sqlite3.Connection, forecast_id: str
+) -> pd.DataFrame:
+    return pd.read_sql_query(
+        "SELECT horizon_days, target_date, predicted_log_return, predicted_price, "
+        "direction_predicted FROM forecast_points WHERE forecast_id = ? "
+        "ORDER BY horizon_days",
+        connection,
+        params=[forecast_id],
+    )
+
+
+def load_forecast_quantiles(
+    connection: sqlite3.Connection, forecast_id: str
+) -> pd.DataFrame:
+    """Wide quantile matrix (prices) indexed by horizon."""
+    long = pd.read_sql_query(
+        "SELECT horizon_days, quantile, predicted_log_return, predicted_price "
+        "FROM forecast_quantiles WHERE forecast_id = ? ORDER BY horizon_days, quantile",
+        connection,
+        params=[forecast_id],
+    )
+    if long.empty:
+        return long
+    return long.pivot(
+        index="horizon_days", columns="quantile", values="predicted_price"
+    ).sort_index()
+
+
+def forecast_history(
+    connection: sqlite3.Connection,
+    *,
+    source: str,
+    symbol: str,
+    horizon_days: int,
+    limit: int = 60,
+) -> pd.DataFrame:
+    """One horizon's median forecast over recent origins, for the revision chart."""
+    return pd.read_sql_query(
+        "SELECT f.forecast_origin_date, f.origin_close, f.model_version, "
+        "p.target_date, p.predicted_price, p.predicted_log_return "
+        "FROM forecasts f JOIN forecast_points p ON p.forecast_id = f.forecast_id "
+        "WHERE f.source = ? AND f.symbol = ? AND p.horizon_days = ? "
+        "ORDER BY f.forecast_origin_date DESC LIMIT ?",
+        connection,
+        params=[source, symbol, int(horizon_days), int(limit)],
+    )
