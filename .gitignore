@@ -35,24 +35,26 @@ secrets.yaml
 config.local.yaml
 
 # Data & model artifacts
-data/
-raw/
-cache/
+# NOTE: these are root-anchored on purpose. Unanchored `data/` / `models/` would
+# also ignore the source packages `src/data/` and `src/models/`.
+/data/
+/raw/
+/cache/
+/artifacts/
+/mlruns/
+/reports/
 *.db
 *.sqlite
 *.sqlite3
 *.parquet
 *.feather
 *.csv
-models/
-artifacts/
-mlruns/
 *.pkl
 *.joblib
 *.onnx
 
 # Logs
-logs/
+/logs/
 *.log
 
 # Streamlit

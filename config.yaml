@@ -1,7 +1,23 @@
+# BTC Sniper - central configuration.
+# Every operational parameter lives here; code must not hard-code values that
+# appear in this file. See DATA_SPEC.md / MODEL_SPEC.md / VALIDATION_SPEC.md.
+config_version: v1
+
 project:
-  name: btc-long-horizon-forecast
+  name: btc-sniper
   timezone: UTC
   base_currency: USD
+
+paths:
+  data_dir: data
+  logs_dir: logs
+  reports_dir: reports
+  models_dir: artifacts/models
+
+logging:
+  level: INFO
+  file: logs/btc_sniper.log
+  console: true
 
 market:
   primary:
@@ -13,20 +29,90 @@ market:
     symbol: BTC-USD
     enabled: true
 
+ingestion:
+  binance:
+    base_url: https://api.binance.com
+    klines_endpoint: /api/v3/klines
+    ticker_price_endpoint: /api/v3/ticker/price
+    max_limit: 1000
+    history_start: "2017-08-17"
+    request_timeout_seconds: 20
+    max_retries: 5
+    backoff_initial_seconds: 1.0
+    backoff_multiplier: 2.0
+    backoff_max_seconds: 30.0
+    min_request_interval_seconds: 0.25
+  coinbase:
+    base_url: https://api.exchange.coinbase.com
+    candles_endpoint: /products/{product_id}/candles
+    granularity_seconds: 86400
+    max_candles_per_request: 300
+    request_timeout_seconds: 20
+    max_retries: 5
+    backoff_initial_seconds: 1.0
+    backoff_multiplier: 2.0
+    backoff_max_seconds: 30.0
+    min_request_interval_seconds: 0.25
+
+# Realtime price is for UI freshness ONLY. It never feeds the model and never
+# overwrites a closed daily candle (DATA_SPEC.md section 1).
 realtime:
   source: binance_websocket
   rest_fallback: true
   dashboard_refresh_seconds: 5
+  websocket_url: wss://stream.binance.com:9443/ws
+  # @miniTicker emits one summary per second. @trade emits every single trade,
+  # which on BTCUSDT is thousands per second - far more than a price display
+  # needs. Both are parsed; the stream only changes how often we are woken up.
+  stream_suffix: "@miniTicker"
+  reconnect_initial_seconds: 1.0
+  reconnect_multiplier: 2.0
+  reconnect_max_seconds: 60.0
+  reconnect_jitter_seconds: 0.5
+  # No message for this long means the connection is dead even if the socket
+  # still looks open; force a reconnect.
+  heartbeat_timeout_seconds: 30
+  ping_interval_seconds: 20
+  ping_timeout_seconds: 20
+  # Bounds how long a graceful shutdown waits for the close handshake.
+  close_timeout_seconds: 3
+  # A tick older than this is treated as stale and triggers the REST fallback.
+  max_price_age_seconds: 60
+  # Ticks arrive far faster than they need to be persisted; write at most one
+  # row per interval so SQLite is not hammered.
+  persist_interval_seconds: 2.0
+  retention_hours: 48
+  # Reject a tick this far from the last closed daily close. Guards the display
+  # against a corrupted feed; 2020-03-12, the worst day on record, moved 39.6%.
+  max_deviation_from_last_close_pct: 50.0
+
+data_quality:
+  # Hard failures (block the daily pipeline) - see DATA_SPEC.md section 7.
+  max_missing_day_ratio: 0.005
+  require_no_duplicate_keys: true
+  require_monotonic_open_time: true
+  require_valid_ohlc_relationship: true
+  require_non_negative_volume: true
+  # Warnings only (never delete legitimate crash/pump candles).
+  extreme_daily_log_return_warn: 0.25
+  zero_volume_warn: true
+  cross_exchange_close_diff_warn_pct: 1.0
+  cross_exchange_check_days: 120
+  max_staleness_days: 2
 
 forecast:
   anchor: last_closed_daily_candle
   target: future_log_return
   max_horizon_days: 365
+  horizon_grid_version: v1
+  # Bands are anchored on their END day so that 30 / 90 / 180 / 365 are always
+  # produced exactly; spacing inside a band is regular (see MODEL_SPEC.md 2).
   horizon_grid:
     daily_until: 30
     every_n_days_31_90: 3
     every_n_days_91_180: 7
     every_n_days_181_365: 14
+  required_evaluation_horizons: [1, 7, 30, 90, 180, 365]
   quantiles: [0.025, 0.10, 0.25, 0.50, 0.75, 0.90, 0.975]
   visualization:
     interpolation: pchip
@@ -40,6 +126,35 @@ features:
     - volatility
     - volume
     - regime
+  # Minimum history required before a feature row is considered usable.
+  min_warmup_days: 365
+  params:
+    return_periods: [1, 3, 7, 14, 30, 90]
+    sma_windows: [7, 14, 30, 50, 100, 200]
+    ema_windows: [12, 26, 50, 200]
+    ma_slope_window: 20
+    momentum_windows: [10, 30, 90]
+    rsi_window: 14
+    macd: {fast: 12, slow: 26, signal: 9}
+    bollinger: {window: 20, num_std: 2.0}
+    atr_window: 14
+    volatility_windows: [7, 14, 30, 90]
+    realized_vol_annualization_days: 365
+    extreme_windows: [30, 90, 365]
+    drawdown_windows: [90, 365]
+    volume_windows: [7, 30, 90]
+  regime:
+    trend_fast_window: 50
+    trend_slow_window: 200
+    drawdown_window: 365
+    direction_return_window: 90
+    direction_return_threshold: 0.10
+    bear_drawdown_threshold: 0.20
+    volatility_window: 30
+    volatility_rank_window: 365
+    volatility_rank_min_periods: 180
+    high_volatility_quantile: 0.70
+    low_volatility_quantile: 0.30
 
 models:
   primary_algorithm: lightgbm_quantile
@@ -59,6 +174,24 @@ validation:
   method: walk_forward
   outer_test_reserved: true
   validation_origin_spacing_days: 30
+
+  # --- FROZEN SPLIT. See VALIDATION_SPEC.md section 4.2 for the rationale.
+  # Changing outer_test_start invalidates every recorded outer-test metric and
+  # requires a new split_version. Do not move it to chase a better result.
+  split_version: v1
+  outer_test_start: "2024-01-01"
+  outer_test_frozen_at: "2026-09-14"
+  outer_test_end: null            # null = roll forward with the newest data
+  inner_validation_end: "2023-12-31"
+  # Training origins must satisfy: origin + horizon + embargo_days < outer_test_start.
+  # The purge length is the horizon itself, so it is not a fixed number here.
+  purge_mode: horizon
+  embargo_days: 0
+  max_outer_test_evaluations_per_model_version: 1
+  # Horizons where the data cannot supply enough independent windows for a
+  # statistical verdict. Reported, but never the sole basis for promotion or
+  # rejection (VALIDATION_SPEC.md section 4.3).
+  low_power_horizon_days: 180
   metrics:
     - mae
     - rmse
@@ -84,6 +217,7 @@ operation:
     min_improvement_fraction: 0.02
     require_stability_across_folds: true
     require_interval_coverage_not_materially_worse: true
+    min_realized_forecasts_per_horizon: 20
 
 storage:
   database: btc_forecast.db
@@ -96,6 +230,7 @@ streamlit:
   show_realtime_price: true
   show_forecast_interval: true
   show_forecast_revision: true
+  forecast_revision_days: 30
 
 notifications:
   enabled: false
