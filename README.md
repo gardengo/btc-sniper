@@ -78,9 +78,17 @@ python -m jobs.generate_forecast
 python -m jobs.generate_forecast --model-version <version>   # 연구용
 python -m jobs.generate_forecast --origin 2025-06-30         # 특정 날짜 backfill
 
+# 8. 도래한 target 확정 + production 지표/드리프트
+python -m jobs.evaluate_forecasts
+
 # 테스트
 python -m pytest
 ```
+
+production 지표는 첫 일일 실행부터 쌓인다. 30일 horizon은 30일, 365일 horizon은
+1년이 지나야 말을 한다. 과거 날짜로 forecast를 backfill해도 지름길이 되지 않는다.
+그 날짜까지 학습된 모델은 이미 답을 봤기 때문이다. `drop_in_sample()`이 그런
+행을 자동으로 제외한다 (`OPERATING_SPEC.md` 3.2절).
 
 forecast는 **마지막 확정 일봉**에 anchor한다. 실시간 가격은 `current_price`로
 함께 저장되지만 anchor가 되지 않는다 (`CLAUDE.md` 2.4절). 장중 움직임으로

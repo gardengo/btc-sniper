@@ -49,6 +49,54 @@ Candidate training is considered when one or more configured conditions are met:
 
 If none are met, keep incumbent.
 
+### 3.1 Feature drift is measured against a calibrated null, not a fixed PSI
+
+Implementation: `src/monitoring/drift.py`.
+
+The conventional PSI thresholds (0.1 warn / 0.25 alert) come from credit scoring,
+where the current sample is roughly an independent draw. Daily market features
+are not: they are strongly autocorrelated, so a contiguous 90-day window is one
+regime rather than a random sample of five years.
+
+Measured on this dataset, a 90-day window taken from **inside the training period
+itself** -- by construction no drift at all -- puts **48 of 64 features past
+0.25**. A trigger that fires on every run teaches the reader to ignore it, which
+is worse than having no trigger.
+
+So thresholds are calibrated: contiguous windows are drawn from the reference
+period, scored against the rest of it, and each feature is flagged only when it
+exceeds what a no-drift window of its own length already produces. That cut the
+real-data alert count from 48 features to 12.
+
+Per-feature calibration alone still over-reports, and the measurement says so:
+about **16% of features** flag on no-drift windows against a nominal 5%. The
+recent window is always at the edge of the reference rather than inside it, and
+the features are strongly correlated with each other so flags arrive in clusters.
+Both are structural, not fixable by moving a number.
+
+The trigger therefore asks the joint question -- *does this window flag more
+features than a no-drift window does?* -- comparing against the calibrated alert
+**count**. On the same no-drift checks that fires 1 time in 4 rather than 4 in 4.
+
+Feature drift remains a weak signal. It is one of several triggers, the weekly
+review adjudicates, and it must never be the sole reason to replace anything.
+
+### 3.2 Production metrics start empty, and that is correct
+
+Production performance accumulates from the first daily run forward. A 30-day
+horizon says nothing for 30 days; a 365-day horizon says nothing for a year.
+
+Backfilling forecasts over past dates does not shortcut this. A model trained
+through those dates has already seen the answers, so the realizations look
+excellent and mean nothing. `realization.drop_in_sample()` excludes any forecast
+whose origin sits inside its own model's training window, and reports how many it
+dropped -- the exclusion is enforced rather than left to whoever runs the
+backfill to remember.
+
+The independent record of out-of-sample performance is the outer test
+(VALIDATION_SPEC.md section 4), evaluated once. The production log is the ongoing
+record, and it starts now.
+
 ## 4. Minimum sample safeguards
 
 Do not make replacement decisions from tiny samples.
@@ -95,6 +143,17 @@ At forecast creation save:
 - model version
 
 When actual target closes become available, update realization rows rather than creating a second prediction.
+
+Implemented by `repositories.upsert_realizations`, which upserts on
+`(forecast_id, horizon_days)`. Re-running the daily job is idempotent, and a
+pending row becomes evaluated in place without leaving its earlier state behind.
+
+Row status is `pending` or `fully_evaluated` -- one target date either arrived or
+it did not. `partially_evaluable` describes a whole forecast, whose 1-day horizon
+may resolve a year before its 365-day horizon (VALIDATION_SPEC.md section 12).
+
+A target date inside the data range with no stored candle stays `pending`. That
+is a data problem, not a resolved forecast, and it is logged as one.
 
 ## 8. Streamlit behavior
 

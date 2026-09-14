@@ -99,11 +99,19 @@
 
 ## Phase 7. Realization and monitoring
 
-- [ ] target-date resolver
-- [ ] actual price join
-- [ ] forecast realization table — 스키마만 준비됨
-- [ ] production metric aggregation
-- [ ] performance drift detection
+- [x] target-date resolver (`src/monitoring/realization.py`)
+- [x] actual price join — 미도래 target은 pending으로 남고 값을 지어내지 않는다.
+      데이터 범위 안인데 캔들이 없으면 그것도 pending이다(데이터 문제).
+- [x] forecast realization table — `(forecast_id, horizon_days)` upsert.
+      재실행이 멱등이고 pending 행이 제자리에서 평가 완료로 바뀐다.
+- [x] production metric aggregation (`production_metrics`) — 학습 구간 안에서
+      만들어진 forecast는 `drop_in_sample()`이 제외한다. 모델이 답을 이미 본
+      예측은 좋아 보이지만 정보가 없다.
+- [x] performance drift detection (`src/monitoring/drift.py`) — PSI 임계값을
+      no-drift 구간으로 보정하고, 트리거는 개별 feature가 아니라 발화 **개수**를
+      비교한다. OPERATING_SPEC.md 3.1절.
+- [x] job (`jobs/evaluate_forecasts.py`) + 리포트
+      (`src/monitoring/performance_report.py`)
 
 ## Phase 8. Weekly model review
 

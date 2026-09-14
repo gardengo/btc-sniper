@@ -314,6 +314,34 @@ operation:
   forecast_frequency: daily
   model_review_frequency: weekly
   min_new_observations_since_training: 14
+  # Retraining triggers (OPERATING_SPEC.md section 3). These report; the weekly
+  # review decides. Nothing here retrains anything on its own.
+  drift:
+    # Fixed PSI thresholds, used only when calibration is off or impossible.
+    # These are the conventional credit-scoring values and they badly over-report
+    # on autocorrelated daily features, so they are a fallback, not the rule.
+    feature_psi_warn: 0.10
+    feature_psi_alert: 0.25
+    psi_bins: 10
+    # Calibrate the thresholds against no-drift windows instead. A contiguous
+    # 90-day window taken from INSIDE the training period already puts 48 of 64
+    # features past 0.25 on this dataset: daily features are strongly
+    # autocorrelated, so one window is one regime, not a random sample. A trigger
+    # that fires every time teaches the reader to ignore it.
+    calibration:
+      enabled: true
+      # 60 windows, because a 0.99 quantile estimated from 24 draws is essentially
+      # the maximum and swings with the seed. 0.95 of 60 is the ~3rd largest.
+      samples: 60
+      warn_quantile: 0.80
+      alert_quantile: 0.95
+      seed: 20260914
+    recent_days: 90
+    # Production worse than its own validation benchmark by more than this.
+    performance_degradation_fraction: 0.20
+    # Below this many realized forecasts a horizon cannot trigger anything
+    # (OPERATING_SPEC.md section 4).
+    min_realized_for_drift: 20
   production_promotion:
     require_validation_improvement: true
     min_improvement_fraction: 0.02

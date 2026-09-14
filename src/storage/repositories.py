@@ -12,6 +12,7 @@ import sqlite3
 from collections.abc import Iterable, Sequence
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
 import pandas as pd
 
 from src.data.types import Candle, RealtimeTick
@@ -563,3 +564,134 @@ def forecast_history(
         connection,
         params=[source, symbol, int(horizon_days), int(limit)],
     )
+
+
+def load_forecast_points_for_realization(
+    connection: sqlite3.Connection,
+    *,
+    source: str,
+    symbol: str,
+    timeframe: str = "1d",
+    model_version: str | None = None,
+) -> pd.DataFrame:
+    """Every stored forecast point with the origin context realization needs."""
+    query = (
+        "SELECT f.forecast_id, f.forecast_origin_date, f.origin_close, "
+        "f.model_version, p.horizon_days, p.target_date, p.predicted_log_return, "
+        "p.predicted_price, p.direction_predicted "
+        "FROM forecasts f JOIN forecast_points p ON p.forecast_id = f.forecast_id "
+        "WHERE f.source = ? AND f.symbol = ? AND f.timeframe = ?"
+    )
+    params: list[Any] = [source, symbol, timeframe]
+    if model_version is not None:
+        query += " AND f.model_version = ?"
+        params.append(model_version)
+    query += " ORDER BY f.forecast_origin_date, p.horizon_days"
+    return pd.read_sql_query(query, connection, params=params)
+
+
+def load_forecast_quantiles_long(
+    connection: sqlite3.Connection, forecast_ids: Sequence[str]
+) -> pd.DataFrame:
+    """Long-format quantile rows for a set of forecasts."""
+    if not forecast_ids:
+        return pd.DataFrame(
+            columns=["forecast_id", "horizon_days", "quantile", "predicted_log_return"]
+        )
+    placeholders = ",".join("?" for _ in forecast_ids)
+    return pd.read_sql_query(
+        "SELECT forecast_id, horizon_days, quantile, predicted_log_return, "
+        f"predicted_price FROM forecast_quantiles WHERE forecast_id IN ({placeholders})",
+        connection,
+        params=list(forecast_ids),
+    )
+
+
+def upsert_realizations(connection: sqlite3.Connection, rows: pd.DataFrame) -> int:
+    """Update realization rows in place.
+
+    OPERATING_SPEC.md section 7: a target that resolves updates its row rather
+    than creating a second prediction. The upsert is on
+    ``(forecast_id, horizon_days)``, so re-running the job is idempotent and a
+    pending row becomes evaluated without leaving its earlier state behind.
+    """
+    if rows.empty:
+        return 0
+    stamp = utc_now_iso()
+    payload = [
+        (
+            record["forecast_id"],
+            int(record["horizon_days"]),
+            str(record["target_date"]),
+            str(record["evaluation_status"]),
+            record.get("actual_close"),
+            record.get("actual_log_return"),
+            record.get("absolute_error"),
+            record.get("percentage_error"),
+            record.get("log_return_error"),
+            record.get("direction_predicted"),
+            record.get("direction_actual"),
+            record.get("direction_correct"),
+            record.get("in_interval_50"),
+            record.get("in_interval_80"),
+            record.get("in_interval_95"),
+            record.get("pinball_loss"),
+            record.get("regime"),
+            stamp,
+        )
+        for record in rows.replace({np.nan: None}).to_dict("records")
+    ]
+    connection.executemany(
+        "INSERT INTO forecast_realizations (forecast_id, horizon_days, target_date, "
+        "evaluation_status, actual_close, actual_log_return, absolute_error, "
+        "percentage_error, log_return_error, direction_predicted, direction_actual, "
+        "direction_correct, in_interval_50, in_interval_80, in_interval_95, "
+        "pinball_loss, regime, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT (forecast_id, horizon_days) DO UPDATE SET "
+        "target_date = excluded.target_date, "
+        "evaluation_status = excluded.evaluation_status, "
+        "actual_close = excluded.actual_close, "
+        "actual_log_return = excluded.actual_log_return, "
+        "absolute_error = excluded.absolute_error, "
+        "percentage_error = excluded.percentage_error, "
+        "log_return_error = excluded.log_return_error, "
+        "direction_actual = excluded.direction_actual, "
+        "direction_correct = excluded.direction_correct, "
+        "in_interval_50 = excluded.in_interval_50, "
+        "in_interval_80 = excluded.in_interval_80, "
+        "in_interval_95 = excluded.in_interval_95, "
+        "pinball_loss = excluded.pinball_loss, "
+        "regime = excluded.regime, "
+        "updated_at = excluded.updated_at",
+        payload,
+    )
+    logger.info("updated %d realization rows", len(payload))
+    return len(payload)
+
+
+def load_realizations(
+    connection: sqlite3.Connection,
+    *,
+    status: str | None = None,
+    horizon_days: int | None = None,
+    limit: int | None = None,
+) -> pd.DataFrame:
+    """Realization rows joined to their forecast origin, for the prediction log."""
+    query = (
+        "SELECT r.*, f.forecast_origin_date, f.origin_close, f.model_version "
+        "FROM forecast_realizations r "
+        "JOIN forecasts f ON f.forecast_id = r.forecast_id WHERE 1 = 1"
+    )
+    params: list[Any] = []
+    if status is not None:
+        query += " AND r.evaluation_status = ?"
+        params.append(status)
+    if horizon_days is not None:
+        query += " AND r.horizon_days = ?"
+        params.append(int(horizon_days))
+    query += " ORDER BY f.forecast_origin_date DESC, r.horizon_days"
+    if limit is not None:
+        query += " LIMIT ?"
+        params.append(int(limit))
+    return pd.read_sql_query(query, connection, params=params)
