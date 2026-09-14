@@ -85,6 +85,7 @@ class TrainingRequest:
         strategy: str | None = None,
         cutoff: pd.Timestamp | None = None,
         suffix: str = "",
+        params: Mapping[str, Any] | None = None,
     ) -> "TrainingRequest":
         models = config.section("models")
         return cls(
@@ -92,7 +93,7 @@ class TrainingRequest:
             levels=config.forecast.quantiles,
             strategy=strategy or str(models.get("default_training_window", EXPANDING)),
             algorithm=str(models.get("primary_algorithm", "lightgbm_quantile")),
-            params=dict(models.get("lightgbm", {})),
+            params=dict(params if params is not None else models.get("lightgbm", {})),
             seed=int(models.get("random_seed", 42)),
             cutoff=cutoff,
             suffix=suffix,

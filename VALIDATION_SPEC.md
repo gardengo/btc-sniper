@@ -314,6 +314,12 @@ At minimum compare:
 
 Select the window only from inner validation. The final test remains untouched.
 
+Run with `python -m jobs.walk_forward --compare-windows`. The result and the
+decision are recorded in MODEL_SPEC.md section 7.1: `expanding` selected, and
+`rolling_5y` / `rolling_8y` found to be *indistinguishable from it* because the
+dataset is shorter than the window. The comparison report flags identical columns
+rather than presenting them as four evaluated options.
+
 ## 10. Acceptance criteria
 
 A candidate is eligible for promotion when all configured minimum conditions are met:
@@ -327,6 +333,24 @@ A candidate is eligible for promotion when all configured minimum conditions are
 Horizons flagged low-power by section 4.3 are excluded from the primary
 decision metric. They are still reported, and a catastrophic result there can
 still veto a promotion, but they cannot by themselves justify one.
+
+### 10.1 The primary decision metric
+
+`pinball_mean` -- the mean pinball loss over the seven quantiles, which
+approximates CRPS and scores the whole predictive distribution rather than only
+its centre. A model can improve its median while making its intervals useless,
+and at long horizons the interval is the part that matters (section 4.3).
+
+A candidate is judged per horizon on three numbers, all produced by
+`src/monitoring/validation_report.py::verdict`:
+
+- `win_rate`: the fraction of folds where it beat the reference baseline
+- `mean_improvement`: `1 - candidate/reference`, averaged over folds
+- `worst_improvement`: the fold where it did worst
+
+"Beats the baseline" requires **every** fold, not a good average. A model that
+wins on average by winning hugely once and losing the rest is not deployable, and
+averaging is precisely the operation that hides that.
 
 ## 11. Reproducibility
 

@@ -245,6 +245,69 @@ Only after tree-based models fail to meet acceptance criteria:
 
 Deep learning must beat the production baseline on validation stability, not just one split.
 
+#### 6.4 Hyperparameter selection (frozen 2026-09-14)
+
+Four sets were declared up front in `models.lightgbm_candidates` and run once with
+`python -m jobs.walk_forward --compare-params` over 4 folds and 6 horizons. They
+were declared before running rather than hill-climbed: adjusting one number and
+re-checking the same folds is the validation overfitting VALIDATION_SPEC.md
+section 5 prohibits.
+
+Mean `pinball_mean` across folds (lower is better):
+
+| horizon | under_regularised | moderate | strong | stumps |
+| --- | --- | --- | --- | --- |
+| 1d | 0.0074 | 0.0071 | **0.0071** | 0.0071 |
+| 7d | 0.0247 | 0.0215 | **0.0211** | 0.0211 |
+| 30d | 0.0655 | 0.0512 | **0.0478** | 0.0466 |
+| 90d | 0.1256 | 0.1052 | **0.0940** | 0.0913 |
+| 180d | 0.2374 | 0.1527 | **0.1376** | 0.1385 |
+| 365d | 0.2732 | 0.2454 | **0.2348** | 0.2366 |
+
+**`strong` is selected** and frozen into `models.lightgbm`. It is the only set
+that beats the baseline in all four folds at h=1 while remaining at worst tied at
+h=7; `stumps` is marginally better at 30-90d but is depth-1 and wins there only by
+collapsing toward the baseline.
+
+The first guess (`under_regularised`: 300 rounds, 15 leaves, lambda 1.0) was
+wrong and is kept as a negative control. Its 95% interval coverage was **0.62
+against a nominal 0.95** at h=30, and it was 80% worse than the baseline at
+h=180. That is the signature of fitting extreme quantiles to noise.
+
+#### 6.5 What walk-forward actually found (split v1, inner block)
+
+Full results in `reports/walk_forward_validation.md`. Verdict per horizon for the
+selected configuration, against the `no_change` baseline on `pinball_mean`:
+
+| horizon | folds won | mean improvement | verdict |
+| --- | --- | --- | --- |
+| 1d | 4/4 | +2.2% | beats baseline in every fold |
+| 7d | 2/4 | +0.2% | mixed, not consistent |
+| 30d | 0/4 | -7.9% | does not beat baseline |
+| 90d | 0/4 | -9.2% | does not beat baseline |
+| 180d | 2/4 | -8.0% | low power, not decisive |
+| 365d | 1/3 | -52.7% | low power, not decisive |
+
+Three conclusions, which constrain everything after this:
+
+1. **Feature-based trees add real value only at h=1.** A consistent 4/4-fold win
+   is a genuine result, and it is small. At h=7 the model is indistinguishable
+   from doing nothing.
+2. **From h=30 outward the unconditional distribution wins, and the gap grows
+   with horizon.** This is not a tuning failure. Estimating a *conditional* 97.5th
+   percentile of a 30-day return needs tail observations, and with ~53
+   independent windows there is roughly one of them. Regularisation improves the
+   model precisely by pushing it toward the baseline, and the limit of that
+   process is being the baseline. More data would help; more model capacity
+   cannot.
+3. **The production forecast must not be "the tree" at long horizons.** Phase 6
+   should serve the baseline distribution, or a shrunk blend, wherever the tree
+   has not demonstrated an advantage. Shipping a worse forecast because it came
+   from a model would be the whole point of the exercise, inverted.
+
+Per CLAUDE.md section 6, deep learning is not the answer to this. A model class
+with more capacity fails for the same reason and harder.
+
 ## 7. Training window candidates
 
 Compare:
@@ -256,6 +319,27 @@ Compare:
 - available-history window
 
 Do not assume the 4-year BTC cycle is stable enough to choose one window a priori.
+
+### 7.1 Comparison result (2026-09-14): expanding, because nothing distinguishes them
+
+`python -m jobs.walk_forward --compare-windows`, 4 folds x 6 horizons.
+
+**Only two of the four candidates are actually distinguishable.** The usable
+history is about 8 years and the inner block is 5.4 of them, so a 5- or 8-year
+rolling window reaches back past the start of the data and *is* the expanding
+window. `rolling_5y` and `rolling_8y` produced numerically identical results to
+`expanding` -- not similar, identical. The comparison report now says so
+explicitly, because four columns of the same numbers otherwise read as "we
+evaluated this and it did not matter" when it was never evaluated at all.
+
+Between the two that differ, `rolling_4y` was marginally better at 7-90d
+(mean `pinball_mean` 0.0921 vs 0.0940 at 90d) and marginally worse at 180-365d.
+The differences are far inside fold-to-fold spread.
+
+**`expanding` stays the default.** No evidence supports discarding data, and
+CLAUDE.md section 6 says not to add complexity without it. This choice is
+recorded and frozen here per VALIDATION_SPEC.md section 5; revisiting it needs a
+new reason, not a new run.
 
 ## 8. Prediction interval training
 

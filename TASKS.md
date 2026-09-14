@@ -69,18 +69,26 @@
 - [x] Walk-Forward CV fold 생성기 (`src/validation/folds.py`)
 - [x] outer/final test isolation (`src/validation/splits.py`, purge 규칙 포함)
 - [x] regime tagging (`src/features/regime.py`)
-- [~] cycle coverage report — 데이터 품질 리포트에 연도/regime 분포 포함.
-      모델 성능 분해는 Phase 5에서 추가.
+- [x] cycle coverage report — 데이터 품질 리포트의 연도/regime 분포 +
+      walk-forward 리포트 6절의 regime별 성능 분해
 - [x] point metrics (`src/evaluation/metrics.py`) — MAE/RMSE/bias/sMAPE/MASE
 - [x] directional metrics — 전체/상승/하락. median이 정확히 0인 예측은
       방향 판단을 하지 않은 것으로 처리한다(`direction_calls`).
 - [x] quantile metrics — quantile별 pinball loss + `pinball_mean`(CRPS 근사)
 - [x] interval coverage — coverage/width/relative width + Winkler interval score
-- [ ] training window comparison
+- [x] training window comparison (`--compare-windows`) — MODEL_SPEC.md 7.1절.
+      `expanding` 선택. `rolling_5y`/`rolling_8y`는 데이터가 window보다 짧아
+      expanding과 **수치가 동일**하며, 리포트가 이를 명시한다.
+- [x] hyperparameter 선택 (`--compare-params`) — MODEL_SPEC.md 6.4절, `strong` 동결
+- [x] walk-forward 실행 + 리포트 (`src/evaluation/walk_forward.py`,
+      `src/monitoring/validation_report.py`, `jobs/walk_forward.py`)
 
 ## Phase 6. Forecast generation
 
-- [ ] daily production forecast job
+- [ ] daily production forecast job — **주의**: MODEL_SPEC.md 6.5절에 따라
+      h>=30에서는 트리가 baseline보다 나쁘다. 장기 horizon은 baseline 분포나
+      축소 혼합을 서빙해야 하고, 모델에서 나왔다는 이유로 더 나쁜 예측을
+      내보내면 안 된다.
 - [ ] quantile predictions
 - [ ] price conversion from log return
 - [ ] PCHIP visualization interpolation

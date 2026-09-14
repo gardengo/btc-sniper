@@ -172,21 +172,66 @@ models:
   # Which window a single training run uses when none is named. The comparison
   # in MODEL_SPEC.md section 7 picks the real one from inner validation.
   default_training_window: expanding
-  # Deliberately conservative. At h=365 the ~1,600 training rows carry only about
-  # 4 independent observations (VALIDATION_SPEC.md 4.3), so a tree deep enough to
-  # fit them would be memorising overlapping windows, not learning.
+  # SELECTED ON INNER VALIDATION, 2026-09-14. See MODEL_SPEC.md section 6.4.
+  # The first guess (300 rounds, 15 leaves, lambda 1.0) was badly under-regularised:
+  # 95% interval coverage came out at 0.62 against a nominal 0.95 at h=30, because
+  # with ~53 independent observations the extreme quantiles were fitted to noise.
+  # Regularisation fixes the calibration monotonically.
   lightgbm:
-    n_estimators: 300
-    learning_rate: 0.05
-    num_leaves: 15
-    max_depth: 6
-    min_child_samples: 50
+    n_estimators: 80
+    learning_rate: 0.02
+    num_leaves: 3
+    max_depth: 2
+    min_child_samples: 300
     subsample: 0.8
     subsample_freq: 1
-    colsample_bytree: 0.8
+    colsample_bytree: 0.5
     reg_alpha: 0.0
-    reg_lambda: 1.0
+    reg_lambda: 50.0
     min_split_gain: 0.0
+
+  # Pre-declared alternatives, compared once with
+  # `python -m jobs.walk_forward --compare-params`. Declared up front rather than
+  # hill-climbed: repeatedly adjusting one number and re-checking the same folds is
+  # the validation overfitting VALIDATION_SPEC.md section 5 prohibits.
+  lightgbm_candidates:
+    under_regularised:   # the original guess, kept as the negative control
+      n_estimators: 300
+      learning_rate: 0.05
+      num_leaves: 15
+      max_depth: 6
+      min_child_samples: 50
+      subsample: 0.8
+      subsample_freq: 1
+      colsample_bytree: 0.8
+      reg_lambda: 1.0
+    moderate:
+      n_estimators: 150
+      learning_rate: 0.03
+      num_leaves: 7
+      max_depth: 4
+      min_child_samples: 150
+      subsample: 0.8
+      subsample_freq: 1
+      colsample_bytree: 0.6
+      reg_lambda: 10.0
+    strong:
+      n_estimators: 80
+      learning_rate: 0.02
+      num_leaves: 3
+      max_depth: 2
+      min_child_samples: 300
+      subsample: 0.8
+      subsample_freq: 1
+      colsample_bytree: 0.5
+      reg_lambda: 50.0
+    stumps:            # depth-1: the near-degenerate limit, as a lower bound
+      n_estimators: 40
+      learning_rate: 0.02
+      num_leaves: 2
+      max_depth: 1
+      min_child_samples: 400
+      reg_lambda: 100.0
 
 # Naive references every candidate model must beat (MODEL_SPEC.md section 6,
 # VALIDATION_SPEC.md section 8). All three share one spread model and differ

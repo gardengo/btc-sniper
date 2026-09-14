@@ -68,9 +68,19 @@ python -m jobs.train_model --window rolling_4y
 python -m jobs.train_model --horizons all          # 전체 grid (약 10분)
 python -m jobs.train_model --check-reproducible
 
+# 6. Walk-forward 검증 (inner block 전용)
+python -m jobs.walk_forward                        # 선택된 설정으로 검증
+python -m jobs.walk_forward --compare-windows      # 학습 window 비교
+python -m jobs.walk_forward --compare-params       # 사전 선언된 하이퍼파라미터 비교
+
 # 테스트
 python -m pytest
 ```
+
+**현재 검증 결과 (MODEL_SPEC.md 6.5절)**: 트리 모델은 h=1일에서만 baseline을
+일관되게 이긴다(4/4 fold, +2.2%). h>=30일부터는 무조건부 경험 분포가 이기고
+horizon이 길수록 격차가 커진다. 튜닝 문제가 아니라 독립 관측 수의 한계다.
+Phase 6 forecast job은 이 점을 반영해야 한다.
 
 학습은 모델을 production으로 만들지 않는다. `train_model`이 만드는 것은 항상
 `candidate`이고, 승격은 주간 리뷰의 별도 판단이다 (`CLAUDE.md` 2.3절).
