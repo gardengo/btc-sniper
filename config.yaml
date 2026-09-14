@@ -1,0 +1,101 @@
+project:
+  name: btc-long-horizon-forecast
+  timezone: UTC
+  base_currency: USD
+
+market:
+  primary:
+    exchange: binance
+    symbol: BTCUSDT
+    timeframe: 1d
+  secondary:
+    exchange: coinbase
+    symbol: BTC-USD
+    enabled: true
+
+realtime:
+  source: binance_websocket
+  rest_fallback: true
+  dashboard_refresh_seconds: 5
+
+forecast:
+  anchor: last_closed_daily_candle
+  target: future_log_return
+  max_horizon_days: 365
+  horizon_grid:
+    daily_until: 30
+    every_n_days_31_90: 3
+    every_n_days_91_180: 7
+    every_n_days_181_365: 14
+  quantiles: [0.025, 0.10, 0.25, 0.50, 0.75, 0.90, 0.975]
+  visualization:
+    interpolation: pchip
+    show_intervals: [0.50, 0.80, 0.95]
+
+features:
+  version: v1
+  groups:
+    - price_return
+    - trend
+    - volatility
+    - volume
+    - regime
+
+models:
+  primary_algorithm: lightgbm_quantile
+  alternatives:
+    - xgboost
+    - lstm
+    - tcn
+    - transformer
+  random_seed: 42
+  training_windows:
+    - expanding
+    - rolling_4y
+    - rolling_5y
+    - rolling_8y
+
+validation:
+  method: walk_forward
+  outer_test_reserved: true
+  validation_origin_spacing_days: 30
+  metrics:
+    - mae
+    - rmse
+    - smape
+    - direction_accuracy
+    - pinball_loss
+    - interval_coverage
+    - interval_width
+  regimes:
+    - bull
+    - bear
+    - recovery
+    - sideways
+    - high_volatility
+    - low_volatility
+
+operation:
+  forecast_frequency: daily
+  model_review_frequency: weekly
+  min_new_observations_since_training: 14
+  production_promotion:
+    require_validation_improvement: true
+    min_improvement_fraction: 0.02
+    require_stability_across_folds: true
+    require_interval_coverage_not_materially_worse: true
+
+storage:
+  database: btc_forecast.db
+
+streamlit:
+  pages:
+    - dashboard
+    - prediction_log
+    - model_performance
+  show_realtime_price: true
+  show_forecast_interval: true
+  show_forecast_revision: true
+
+notifications:
+  enabled: false
