@@ -81,6 +81,16 @@ baseline, 트리 모델, 운영 예측이 모두 같은 경로(`src/evaluation/e
 
 ### 2.6 Model Registry
 
+학습은 절대 승격시키지 않는다. `register()`는 `candidate`만 받고 `production`은
+`promote()`만 쓸 수 있다 (CLAUDE.md 2.3절). production 모델은 동시에 하나만
+존재하며, 승격 시 기존 모델 은퇴가 같은 트랜잭션에서 일어난다. production이 둘인
+순간이 있으면 일일 forecast가 어느 모델이 자기 출력을 만들었는지 말할 수 없게 된다.
+
+outer test 지표는 model_version당 한 번만 기록할 수 있고, 두 번째 시도는
+거부된다 (VALIDATION_SPEC.md 4.4절). 이 규칙을 실제로 강제할 수 있는 곳은
+registry뿐이다.
+
+
 모델 버전별:
 
 - training cutoff
@@ -156,13 +166,14 @@ src/
   data/        binance.py binance_stream.py coinbase.py http.py ingest.py
                realtime.py types.py validation.py
   features/    indicators.py groups.py regime.py pipeline.py
-  models/      targets.py baselines.py  (트리 모델은 Phase 4)
-  validation/  splits.py  (fold 생성기는 Phase 5)
+  models/      targets.py baselines.py base.py dataset.py lightgbm_model.py
+               forecaster.py training.py registry.py
+  validation/  splits.py folds.py
   evaluation/  metrics.py evaluator.py baseline_eval.py
   storage/     schema.sql db.py repositories.py
   forecast/    horizons.py quantiles.py
   monitoring/  data_report.py baseline_report.py markdown.py
-  utils/       config.py logging.py timeutils.py
+  utils/       config.py logging.py timeutils.py provenance.py
 app/
   streamlit_app.py          (Phase 9)
 jobs/
@@ -171,6 +182,7 @@ jobs/
   data_quality_report.py    구현됨
   stream_realtime_price.py  구현됨
   evaluate_baselines.py     구현됨
+  train_model.py            구현됨
   generate_forecast.py      (Phase 6)
   evaluate_forecasts.py     (Phase 7)
   weekly_model_review.py    (Phase 8)

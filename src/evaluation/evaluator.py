@@ -21,7 +21,12 @@ import numpy as np
 import pandas as pd
 
 from src.evaluation import metrics as m
-from src.forecast.quantiles import assert_ordered, quantile_label, resolve_interval
+from src.forecast.quantiles import (
+    count_crossing_rows,
+    count_crossings,
+    quantile_label,
+    resolve_interval,
+)
 from src.validation.splits import independent_window_count
 
 ALL_REGIMES: str = "all"
@@ -138,9 +143,9 @@ def evaluate(
     # The mean pinball loss over a symmetric quantile grid approximates CRPS and
     # is the single number that ranks whole predictive distributions.
     results["pinball_mean"] = float(np.mean(pinballs)) if pinballs else float("nan")
-    results["quantile_crossings"] = float(
-        assert_ordered(subset.predicted_quantiles.dropna(axis=0, how="any"), subset.levels)
-    )
+    complete = subset.predicted_quantiles.dropna(axis=0, how="any")
+    results["quantile_crossings"] = float(count_crossings(complete, subset.levels))
+    results["quantile_crossing_rows"] = float(count_crossing_rows(complete, subset.levels))
 
     for interval in intervals:
         try:

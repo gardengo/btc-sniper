@@ -62,9 +62,19 @@ python -m jobs.data_quality_report
 python -m jobs.evaluate_baselines                  # 필수 평가 horizon 6개
 python -m jobs.evaluate_baselines --all-horizons   # 전체 77개 grid
 
+# 5. 후보 모델 학습 (candidate로만 등록된다)
+python -m jobs.train_model                         # 필수 평가 horizon 6개
+python -m jobs.train_model --window rolling_4y
+python -m jobs.train_model --horizons all          # 전체 grid (약 10분)
+python -m jobs.train_model --check-reproducible
+
 # 테스트
 python -m pytest
 ```
+
+학습은 모델을 production으로 만들지 않는다. `train_model`이 만드는 것은 항상
+`candidate`이고, 승격은 주간 리뷰의 별도 판단이다 (`CLAUDE.md` 2.3절).
+모델 아티팩트는 `artifacts/models/`에 저장되며 git에는 올리지 않는다.
 
 `evaluate_baselines`는 inner block에서만 채점한다. Outer test는 설계를 동결한
 모델을 단 한 번 평가할 때까지 열지 않는다 (`VALIDATION_SPEC.md` 8.2절).

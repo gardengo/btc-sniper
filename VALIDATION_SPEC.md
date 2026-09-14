@@ -19,6 +19,35 @@ Train 3 -> Validation 3
 
 Each validation prediction must be generated only from information available at its forecast origin.
 
+### 2.1 Fold layout
+
+Implemented in `src/validation/folds.py`. For horizon `h` a fold is
+
+```text
+train:      [window_start, validation_start - h - embargo)
+validation: [validation_start, validation_start + validation_days)
+```
+
+The `h + embargo` gap is not cosmetic. A training example at origin `t` carries
+the label `log(Close[t+h] / Close[t])`, so without the gap the last training
+labels read prices from inside the validation block. This is the section 4.1
+purge rule applied one level in, and `assert_fold_is_clean()` enforces both it
+and the outer-test rule immediately before every fit.
+
+Folds are laid out **backwards from `inner_validation_end`**, so the most recent
+validation block is always complete and always present. Laying them forward from
+the start of the data leaves a ragged remainder at the end -- the most
+market-relevant period -- and quietly changes what every fold sees as soon as one
+more day of history arrives.
+
+A fold with fewer than `validation.walk_forward.min_train_origins` training
+origins is dropped rather than trained: a model fitted on a hundred overlapping
+rows produces a metric that looks real and is not.
+
+Training windows (`expanding`, `rolling_4y/5y/8y`) set the fold's start;
+MODEL_SPEC.md section 7 is explicit that the choice between them is made
+empirically on inner validation, never by assuming the four-year cycle.
+
 ## 3. One-year horizon validation
 
 A 365-day forecast cannot be fully scored until 365 future days have occurred.

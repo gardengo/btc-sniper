@@ -195,10 +195,45 @@ Three findings that constrain Phase 4:
 
 ### Primary ML candidates
 
-- LightGBM quantile regression
+- LightGBM quantile regression — implemented (`src/models/lightgbm_model.py`)
 - XGBoost regression / quantile-capable objective where supported by pinned version
+  — **not implemented yet**, deliberately. CLAUDE.md section 6 says not to add
+  complexity before the simpler option has been shown insufficient, and XGBoost
+  would add a dependency without answering a question LightGBM has not already
+  answered. `src/models/base.py` keeps the algorithm behind a one-class interface
+  with a name-based registry, so adding it later is one file, not a refactor.
 
 Use one model per horizon initially for reliability and debuggability.
+
+#### 6.3 Implementation notes
+
+One regressor per **(horizon, quantile)** pair: 7 quantiles x the horizons
+trained. Independent, individually inspectable, individually replaceable.
+
+- **No scaler.** Trees do not need one, which removes an entire class of
+  leakage: there is no fitted transform that could be fitted across a fold
+  boundary (CLAUDE.md section 2.1).
+- **Determinism is forced.** `deterministic`, `force_row_wise` and
+  `num_threads=1` are set by the code and cannot be overridden from config.
+  Without them LightGBM's histogram construction varies with thread scheduling
+  and VALIDATION_SPEC.md section 11 becomes unenforceable. Note that the seed
+  only has an effect once bagging is enabled -- with `subsample=1.0` GBDT is
+  already deterministic, so a seed-only reproducibility check would pass
+  vacuously.
+- **Hyperparameters are deliberately conservative.** At h=365 the ~1,600
+  training rows carry only about 4 independent observations (VALIDATION_SPEC.md
+  section 4.3). A tree deep enough to fit them would be memorising overlapping
+  windows. Tuning happens on inner validation in Phase 5, never on the test.
+- **Serialisation is LightGBM's text format**, bundled as one gzipped JSON file
+  per model version. Not pickle: a pickle is executable, ties the artifact to
+  one Python version, and would make loading a stored model a code-execution
+  decision. One file per version also keeps an artifact atomic -- a half-written
+  directory of boosters is a model that loads and silently mixes versions.
+- **Quantile crossing is repaired and counted.** Independently fitted quantiles
+  can cross; `predict_horizon` sorts each row and reports both the number of
+  violating adjacent pairs and the number of affected rows. A rising crossing
+  rate means the quantile fits disagree about the same input, which is a real
+  signal that hiding the repair would hide.
 
 ### Optional deep learning
 
@@ -233,6 +268,12 @@ Prediction points should be converted to a future daily visualization grid using
 The interpolation must not create a price lower than the lower quantile or higher than the upper quantile at each displayed date.
 
 ## 10. Required model metadata
+
+Implemented as `src/models/base.py::ModelMetadata` (frozen dataclass, so a model
+cannot reach the registry with half of it missing) and persisted to
+`model_registry`. `training_rows` is supplemented by `training_rows_by_horizon`,
+because the purge costs more data at longer horizons and a single row count
+would misreport every horizon but one.
 
 Every trained model must save:
 

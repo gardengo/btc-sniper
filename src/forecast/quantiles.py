@@ -64,18 +64,30 @@ def resolve_interval(
     return resolved[0], resolved[1]
 
 
-def assert_ordered(frame: pd.DataFrame, levels: tuple[float, ...]) -> int:
-    """Count rows where quantiles cross, i.e. a higher level predicts less.
+def count_crossings(frame: pd.DataFrame, levels: tuple[float, ...]) -> int:
+    """Total adjacent-level violations, i.e. a higher quantile predicting less.
 
-    MODEL_SPEC.md section 3 allows enforcing order as post-processing but
-    requires the frequency to be measured, so this returns a count instead of
-    raising.
+    Counts *pairs*, not rows: one row can violate several adjacent pairs at
+    once, so this can exceed the row count. Use :func:`count_crossing_rows` for
+    a rate. MODEL_SPEC.md section 3 allows enforcing order as post-processing
+    but requires the frequency to be measured, so this counts instead of raising.
     """
     ordered = sorted(levels)
     crossings = 0
     for low, high in zip(ordered, ordered[1:]):
         crossings += int((frame[high] < frame[low]).sum())
     return crossings
+
+
+def count_crossing_rows(frame: pd.DataFrame, levels: tuple[float, ...]) -> int:
+    """Rows containing at least one crossing -- the number a rate divides by."""
+    ordered = sorted(levels)
+    if frame.empty or len(ordered) < 2:
+        return 0
+    affected = pd.Series(False, index=frame.index)
+    for low, high in zip(ordered, ordered[1:]):
+        affected |= frame[high] < frame[low]
+    return int(affected.sum())
 
 
 def enforce_ordering(frame: pd.DataFrame, levels: tuple[float, ...]) -> pd.DataFrame:

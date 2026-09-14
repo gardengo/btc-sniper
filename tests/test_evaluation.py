@@ -31,7 +31,8 @@ from src.evaluation.evaluator import (
 from src.features.regime import compute_regime_labels
 from src.forecast.quantiles import (
     QuantileError,
-    assert_ordered,
+    count_crossing_rows,
+    count_crossings,
     enforce_ordering,
     interval_levels,
     quantile_label,
@@ -89,10 +90,21 @@ class TestQuantileLabels:
 
     def test_crossing_is_counted_then_repairable(self) -> None:
         frame = pd.DataFrame({0.25: [0.1, 0.5], 0.75: [0.2, 0.3]})
-        assert assert_ordered(frame, (0.25, 0.75)) == 1
+        assert count_crossings(frame, (0.25, 0.75)) == 1
         repaired = enforce_ordering(frame, (0.25, 0.75))
-        assert assert_ordered(repaired, (0.25, 0.75)) == 0
+        assert count_crossings(repaired, (0.25, 0.75)) == 0
         assert repaired.loc[1, 0.25] == 0.3
+
+    def test_pair_count_can_exceed_the_row_count(self) -> None:
+        """One row can violate several adjacent pairs, so the two counts differ."""
+        frame = pd.DataFrame({0.25: [0.9], 0.50: [0.5], 0.75: [0.1]})
+        levels = (0.25, 0.50, 0.75)
+        assert count_crossings(frame, levels) == 2
+        assert count_crossing_rows(frame, levels) == 1
+
+    def test_no_crossing_rows_in_an_ordered_frame(self) -> None:
+        frame = pd.DataFrame({0.25: [0.1], 0.75: [0.2]})
+        assert count_crossing_rows(frame, (0.25, 0.75)) == 0
 
 
 class TestPointMetrics:
