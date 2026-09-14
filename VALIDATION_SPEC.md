@@ -33,6 +33,39 @@ origin_t+K -> forecast 1..365 days -> compare with actuals
 
 Origins must be spaced to avoid excessive overlap. Default origin spacing: 30 days for research evaluation, configurable.
 
+### 3.1 Spacing is the horizon, capped
+
+`validation.validation_origin_spacing_days` is a **cap**, not a flat rule. What
+actually removes overlap is spacing origins by the horizon: at `h` days apart the
+target windows are exactly disjoint. The implemented rule is therefore
+
+```text
+spacing = min(horizon, validation_origin_spacing_days)
+```
+
+- `h <= cap`: spacing `h`, giving genuinely independent observations.
+- `h > cap`:  spacing `cap`, accepting overlap because spacing a 365-day horizon
+  by 365 days would leave a handful of origins and no measurable metric at all.
+  The overlap is then reported honestly through `independent_windows`.
+
+A flat 30-day spacing would discard 96% of usable origins at `h=1`, where
+consecutive origins barely overlap to begin with, and would make the
+best-measured horizon the noisiest one.
+
+Implementation: `src/evaluation/baseline_eval.py::origin_spacing_days`.
+
+### 3.2 Effective sample size
+
+Overlap is accounted for as
+
+```text
+independent_windows = origin_count * min(spacing, horizon) / horizon
+```
+
+which reduces to `origin_count / horizon` for daily origins and to
+`origin_count` once spacing reaches the horizon. Implementation:
+`src/validation/splits.py::independent_window_count`.
+
 ## 4. Final / Outer Test
 
 Reserve a chronologically later block that is untouched during model selection.
@@ -216,6 +249,30 @@ Report:
 - improvement vs no-change
 - improvement vs drift
 - improvement consistency across folds
+
+### 8.1 The reference and the ratio
+
+`no_change` is the reference baseline (`src/models/baselines.REFERENCE_BASELINE`).
+`mase` is the ratio of a forecast's mean absolute log-return error to the
+reference's **on the same origins and the same horizon**; below 1.0 beats it,
+and `improvement_vs_no_change = 1 - mase`.
+
+This deviates from textbook MASE, which scales by in-sample naive-1 errors. At a
+365-day horizon that denominator would be roughly 19x too small and the number
+meaningless. Every model in this project is scored through the same function, so
+the ratio is comparable across models even though it is not comparable to MASE
+values published elsewhere.
+
+### 8.2 Baselines are scored on the inner block only
+
+Baselines have no fitted parameters that could overfit a test set, but computing
+their outer-test numbers during development would still tell *the developer*
+what that block looks like, which is what section 2.2 of CLAUDE.md forbids.
+`evaluate_baselines()` refuses any scope other than the inner block; the
+baseline's outer-test numbers are produced once, alongside the final model's
+single evaluation.
+
+Current baseline results are recorded in MODEL_SPEC.md section 6.2.
 
 ## 9. Training window comparison
 

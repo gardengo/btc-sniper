@@ -21,6 +21,7 @@ import pandas as pd
 from src.data.validation import QualityReport
 from src.features.pipeline import FeatureBuildResult
 from src.features.regime import compute_regime_labels, regime_summary
+from src.monitoring.markdown import markdown_table
 from src.validation.splits import SplitBoundaries, describe_split
 from src.utils.timeutils import utc_now_iso
 
@@ -40,26 +41,6 @@ class ReportContext:
     secondary_ohlcv: pd.DataFrame | None = None
     split: SplitBoundaries | None = None
     horizons: tuple[int, ...] = ()
-
-
-def _markdown_table(frame: pd.DataFrame, float_format: str = "{:,.4f}") -> str:
-    if frame.empty:
-        return "_(no rows)_\n"
-    formatted = frame.copy()
-    for column in formatted.columns:
-        if pd.api.types.is_float_dtype(formatted[column]):
-            formatted[column] = formatted[column].map(
-                lambda v: "" if pd.isna(v) else float_format.format(v)
-            )
-        else:
-            formatted[column] = formatted[column].astype(str)
-    header = "| " + " | ".join(str(c) for c in formatted.columns) + " |"
-    divider = "| " + " | ".join("---" for _ in formatted.columns) + " |"
-    body = [
-        "| " + " | ".join(str(value) for value in row) + " |"
-        for row in formatted.itertuples(index=False)
-    ]
-    return "\n".join([header, divider, *body]) + "\n"
 
 
 def yearly_statistics(frame: pd.DataFrame) -> pd.DataFrame:
@@ -186,7 +167,7 @@ def render_markdown(context: ReportContext) -> str:
             {"metric": "max close", "value": f"{float(frame['close'].max()):,.2f}"},
         ]
     )
-    lines.append(_markdown_table(coverage))
+    lines.append(markdown_table(coverage))
     if len(missing_days):
         listed = ", ".join(d.strftime("%Y-%m-%d") for d in missing_days[:30])
         lines.append(f"Missing dates (first 30): {listed}")
@@ -196,7 +177,7 @@ def render_markdown(context: ReportContext) -> str:
     lines.append("")
     lines.append(f"Result: **{quality.summary()}**")
     lines.append("")
-    lines.append(_markdown_table(_quality_rows_table(quality)))
+    lines.append(markdown_table(_quality_rows_table(quality)))
     if quality.errors:
         lines.append("> Blocking errors present: the daily pipeline must not")
         lines.append("> generate a forecast in this state (OPERATING_SPEC.md section 9).")
@@ -209,7 +190,7 @@ def render_markdown(context: ReportContext) -> str:
         "close of each calendar year and is not a model result."
     )
     lines.append("")
-    lines.append(_markdown_table(yearly_statistics(frame), float_format="{:,.2f}"))
+    lines.append(markdown_table(yearly_statistics(frame), float_format="{:,.2f}"))
 
     lines.append("## 4. Market regime composition")
     lines.append("")
@@ -219,7 +200,7 @@ def render_markdown(context: ReportContext) -> str:
     )
     lines.append("")
     labels = compute_regime_labels(frame, context.regime_params)
-    lines.append(_markdown_table(regime_summary(labels), float_format="{:.4f}"))
+    lines.append(markdown_table(regime_summary(labels), float_format="{:.4f}"))
 
     by_year = (
         labels.assign(year=labels.index.year)
@@ -228,7 +209,7 @@ def render_markdown(context: ReportContext) -> str:
     )
     lines.append("Direction regime days per year:")
     lines.append("")
-    lines.append(_markdown_table(by_year, float_format="{:,.0f}"))
+    lines.append(markdown_table(by_year, float_format="{:,.0f}"))
 
     if context.secondary_ohlcv is not None and not context.secondary_ohlcv.empty:
         lines.append("## 5. Cross-exchange sanity check")
@@ -262,7 +243,7 @@ def render_markdown(context: ReportContext) -> str:
                 "into the training series (DATA_SPEC.md section 1)."
             )
             lines.append("")
-            lines.append(_markdown_table(summary))
+            lines.append(markdown_table(summary))
         lines.append("")
 
     if context.split is not None and context.features is not None and context.horizons:
@@ -283,7 +264,7 @@ def render_markdown(context: ReportContext) -> str:
                 {"block": "embargo (days, on top of the horizon purge)", "range": str(boundaries.embargo_days)},
             ]
         )
-        lines.append(_markdown_table(boundary_table))
+        lines.append(markdown_table(boundary_table))
         lines.append(
             "Per-horizon sizes. `independent windows` divides the origin count by the "
             "horizon, because consecutive daily origins share almost all of their "
@@ -302,7 +283,7 @@ def render_markdown(context: ReportContext) -> str:
             key_horizons,
             data_end=frame.index.max(),
         )
-        lines.append(_markdown_table(split_table, float_format="{:,.1f}"))
+        lines.append(markdown_table(split_table, float_format="{:,.1f}"))
 
     if context.features is not None:
         result = context.features
@@ -319,7 +300,7 @@ def render_markdown(context: ReportContext) -> str:
                 {"metric": "built at", "value": result.built_at},
             ]
         )
-        lines.append(_markdown_table(feature_summary))
+        lines.append(markdown_table(feature_summary))
 
         lines.append("### 7.1 Columns per group")
         lines.append("")
@@ -329,7 +310,7 @@ def render_markdown(context: ReportContext) -> str:
                 for group, columns in result.column_groups.items()
             ]
         )
-        lines.append(_markdown_table(group_counts))
+        lines.append(markdown_table(group_counts))
 
         lines.append("### 7.2 Warmup and missing values")
         lines.append("")
@@ -339,11 +320,11 @@ def render_markdown(context: ReportContext) -> str:
             "it is used for training."
         )
         lines.append("")
-        lines.append(_markdown_table(feature_warmup_table(result), float_format="{:,.0f}"))
+        lines.append(markdown_table(feature_warmup_table(result), float_format="{:,.0f}"))
 
         lines.append("### 7.3 Feature statistics (post-warmup)")
         lines.append("")
-        lines.append(_markdown_table(feature_statistics(result), float_format="{:,.4f}"))
+        lines.append(markdown_table(feature_statistics(result), float_format="{:,.4f}"))
 
     return "\n".join(lines) + "\n"
 

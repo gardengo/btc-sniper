@@ -39,15 +39,18 @@
 
 ## Phase 3. Baselines
 
-- [ ] no-change baseline
-- [ ] drift baseline
-- [ ] rolling-return baseline
-- [ ] baseline evaluator
+- [x] no-change baseline (`src/models/baselines.py`)
+- [x] drift baseline
+- [x] rolling-return baseline
+- [x] baseline evaluator (`src/evaluation/baseline_eval.py`,
+      `jobs/evaluate_baselines.py`, 리포트 `src/monitoring/baseline_report.py`)
+- [x] 결과 기록 — MODEL_SPEC.md 6.2절. `no_change`가 모든 horizon에서 기준선이다.
 
 ## Phase 4. ML model
 
 - [x] horizon grid generation (`src/forecast/horizons.py`)
-- [ ] target generation
+- [x] target generation (`src/models/targets.py`) — Phase 3에서 필요해 앞당겼다.
+      baseline을 채점하려면 label이 있어야 한다.
 - [ ] train/validation split engine
 - [ ] expanding/rolling window engine
 - [ ] LightGBM quantile model
@@ -62,10 +65,11 @@
 - [x] regime tagging (`src/features/regime.py`)
 - [~] cycle coverage report — 데이터 품질 리포트에 연도/regime 분포 포함.
       모델 성능 분해는 Phase 5에서 추가.
-- [ ] point metrics
-- [ ] directional metrics
-- [ ] quantile metrics
-- [ ] interval coverage
+- [x] point metrics (`src/evaluation/metrics.py`) — MAE/RMSE/bias/sMAPE/MASE
+- [x] directional metrics — 전체/상승/하락. median이 정확히 0인 예측은
+      방향 판단을 하지 않은 것으로 처리한다(`direction_calls`).
+- [x] quantile metrics — quantile별 pinball loss + `pinball_mean`(CRPS 근사)
+- [x] interval coverage — coverage/width/relative width + Winkler interval score
 - [ ] training window comparison
 
 ## Phase 6. Forecast generation
@@ -107,10 +111,13 @@
 
 - [x] data tests (`tests/test_validation.py`, `tests/test_storage.py`,
       `tests/test_realtime.py`)
-- [x] leakage tests (`tests/test_leakage.py`)
-- [ ] target alignment tests
+- [x] leakage tests (`tests/test_leakage.py`) — 인과성이 필요한 모든 패키지를
+      AST로 검사하고, 미래 참조 예외가 `src/models/targets.py` 하나로
+      유지되는지도 검사한다.
+- [x] target alignment tests (`tests/test_baselines.py`) — 가격 복원 왕복,
+      마지막 h개 행 NaN, feature 행렬과의 분리
+- [x] interval ordering tests (`tests/test_evaluation.py`)
 - [x] forecast horizon tests (`tests/test_timeutils_and_horizons.py`)
-- [ ] interval ordering tests
 - [ ] model reproducibility tests
 - [ ] promotion gate tests
 - [ ] Streamlit smoke test

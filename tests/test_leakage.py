@@ -12,6 +12,8 @@ that every value at or before ``T`` is identical. A feature that peeks at
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -133,48 +135,86 @@ def test_indicator_is_causal(name: str, builder, ohlcv: pd.DataFrame) -> None:
     )
 
 
-def test_no_non_causal_constructs_in_feature_source() -> None:
+# Every module that must be causal. `src/models/targets.py` is deliberately
+# absent: a label has to read a future price, and that is the one place allowed
+# to. Keeping the exemption to a single named file is what stops it spreading.
+CAUSAL_SOURCE_ROOTS: tuple[str, ...] = (
+    "src/features",
+    "src/evaluation",
+    "src/models/baselines.py",
+    "src/validation",
+)
+FORWARD_LOOKING_EXEMPTION: str = "src/models/targets.py"
+
+
+def _causal_source_files() -> list[Path]:
+    root = Path(__file__).resolve().parents[1]
+    files: list[Path] = []
+    for entry in CAUSAL_SOURCE_ROOTS:
+        target = root / entry
+        files.extend(sorted(target.rglob("*.py")) if target.is_dir() else [target])
+    return files
+
+
+def _non_causal_calls(path: Path) -> list[str]:
+    import ast
+
+    offenders: list[str] = []
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = node.func.attr if isinstance(node.func, ast.Attribute) else ""
+        if name in {"shift", "tshift"}:
+            for argument in node.args:
+                if (
+                    isinstance(argument, ast.UnaryOp)
+                    and isinstance(argument.op, ast.USub)
+                ) or (
+                    isinstance(argument, ast.Constant)
+                    and isinstance(argument.value, int)
+                    and argument.value < 0
+                ):
+                    offenders.append(f"{path.name}:{node.lineno} negative shift")
+        if name in {"bfill", "backfill"}:
+            offenders.append(f"{path.name}:{node.lineno} backward fill")
+        for keyword in node.keywords:
+            if keyword.arg == "center" and getattr(keyword.value, "value", False) is True:
+                offenders.append(f"{path.name}:{node.lineno} centred window")
+            if keyword.arg == "method" and getattr(keyword.value, "value", "") in {
+                "bfill",
+                "backfill",
+            }:
+                offenders.append(f"{path.name}:{node.lineno} backward fill")
+    return offenders
+
+
+def test_no_non_causal_constructs_in_causal_source() -> None:
     """Guard against a future `shift(-n)` or `center=True` creeping in.
 
     The source is parsed with `ast` rather than grepped, so the prose in the
     module docstrings that *describes* these forbidden constructs does not trip
     the check.
     """
-    import ast
-    from pathlib import Path
-
-    feature_dir = Path(__file__).resolve().parents[1] / "src" / "features"
     offenders: list[str] = []
-
-    for path in sorted(feature_dir.rglob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            name = node.func.attr if isinstance(node.func, ast.Attribute) else ""
-            if name in {"shift", "tshift"}:
-                for argument in node.args:
-                    if (
-                        isinstance(argument, ast.UnaryOp)
-                        and isinstance(argument.op, ast.USub)
-                    ) or (
-                        isinstance(argument, ast.Constant)
-                        and isinstance(argument.value, int)
-                        and argument.value < 0
-                    ):
-                        offenders.append(f"{path.name}:{node.lineno} negative shift")
-            if name in {"bfill", "backfill"}:
-                offenders.append(f"{path.name}:{node.lineno} backward fill")
-            for keyword in node.keywords:
-                if keyword.arg == "center" and getattr(keyword.value, "value", False) is True:
-                    offenders.append(f"{path.name}:{node.lineno} centred window")
-                if keyword.arg == "method" and getattr(keyword.value, "value", "") in {
-                    "bfill",
-                    "backfill",
-                }:
-                    offenders.append(f"{path.name}:{node.lineno} backward fill")
-
+    for path in _causal_source_files():
+        offenders.extend(_non_causal_calls(path))
     assert not offenders, f"non-causal constructs found: {offenders}"
+
+
+def test_the_only_forward_looking_module_is_the_target_builder() -> None:
+    """The exemption must stay exactly one file.
+
+    If a second module starts shifting forwards, this fails -- which is the
+    point. A forward shift outside target construction is a leak by definition.
+    """
+    root = Path(__file__).resolve().parents[1]
+    exempt = root / FORWARD_LOOKING_EXEMPTION
+    assert _non_causal_calls(exempt), (
+        f"{FORWARD_LOOKING_EXEMPTION} no longer shifts forward; "
+        "if targets moved elsewhere, move the exemption too"
+    )
+    assert exempt not in _causal_source_files()
 
 
 def test_true_range_uses_previous_close_only(ohlcv: pd.DataFrame) -> None:

@@ -170,6 +170,24 @@ models:
     - rolling_5y
     - rolling_8y
 
+# Naive references every candidate model must beat (MODEL_SPEC.md section 6,
+# VALIDATION_SPEC.md section 8). All three share one spread model and differ
+# only in the location they predict, so a comparison isolates the trend claim.
+baselines:
+  enabled:
+    - no_change        # location = 0: the price is a random walk
+    - drift            # location = long-run mean daily log return x h
+    - rolling_return   # location = recent mean daily log return x h
+  drift_min_samples: 365
+  rolling_return_window_days: 90
+  # Prediction intervals come from the empirical distribution of PAST h-day log
+  # returns observed up to the origin, recentered on the predicted location.
+  # Empirical rather than Gaussian because BTC returns are fat-tailed and skewed;
+  # a sigma*sqrt(h) band would understate the tails it is supposed to cover.
+  empirical_quantile:
+    lookback_days: null   # null = expanding (every observation up to the origin)
+    min_samples: 60       # overlapping, so the independent count is min_samples/h
+
 validation:
   method: walk_forward
   outer_test_reserved: true

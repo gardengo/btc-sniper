@@ -58,9 +58,17 @@ python -m jobs.build_features --check-leakage
 # 3. 데이터 품질 리포트 (reports/data_quality_report.md)
 python -m jobs.data_quality_report
 
+# 4. Baseline 평가 (reports/baseline_evaluation.md)
+python -m jobs.evaluate_baselines                  # 필수 평가 horizon 6개
+python -m jobs.evaluate_baselines --all-horizons   # 전체 77개 grid
+
 # 테스트
 python -m pytest
 ```
+
+`evaluate_baselines`는 inner block에서만 채점한다. Outer test는 설계를 동결한
+모델을 단 한 번 평가할 때까지 열지 않는다 (`VALIDATION_SPEC.md` 8.2절).
+결과 요약은 `MODEL_SPEC.md` 6.2절에 기록되어 있다.
 
 실시간 현재가는 별도의 상주 프로세스로 돌린다. 위 일 단위 job과 동시에
 실행해도 안전하다 (`realtime_price` 테이블에만 쓴다).

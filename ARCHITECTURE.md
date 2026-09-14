@@ -75,6 +75,10 @@ Binance Realtime WebSocket ┘                    │
 
 각 예측에 대해 target date가 도착하면 실제값을 연결하고 평가 지표를 계산한다.
 
+baseline, 트리 모델, 운영 예측이 모두 같은 경로(`src/evaluation/evaluator.py`)로
+채점된다. 지표를 두 번 구현하면 결국 서로 다른 값을 내놓게 되고, 그러면
+"candidate가 baseline보다 X만큼 낫다"가 비교가 아니라 두 개의 다른 계산이 된다.
+
 ### 2.6 Model Registry
 
 모델 버전별:
@@ -152,12 +156,12 @@ src/
   data/        binance.py binance_stream.py coinbase.py http.py ingest.py
                realtime.py types.py validation.py
   features/    indicators.py groups.py regime.py pipeline.py
-  models/      (Phase 3-4)
+  models/      targets.py baselines.py  (트리 모델은 Phase 4)
   validation/  splits.py  (fold 생성기는 Phase 5)
-  evaluation/  (Phase 5)
+  evaluation/  metrics.py evaluator.py baseline_eval.py
   storage/     schema.sql db.py repositories.py
-  forecast/    horizons.py
-  monitoring/  data_report.py
+  forecast/    horizons.py quantiles.py
+  monitoring/  data_report.py baseline_report.py markdown.py
   utils/       config.py logging.py timeutils.py
 app/
   streamlit_app.py          (Phase 9)
@@ -166,11 +170,18 @@ jobs/
   build_features.py         구현됨
   data_quality_report.py    구현됨
   stream_realtime_price.py  구현됨
+  evaluate_baselines.py     구현됨
   generate_forecast.py      (Phase 6)
   evaluate_forecasts.py     (Phase 7)
   weekly_model_review.py    (Phase 8)
 tests/
 ```
+
+`src/models/targets.py`는 이 저장소에서 **유일하게 미래를 참조하도록 허용된
+모듈**이다. label은 정의상 `t+h` 가격을 읽어야 한다. `src/features/`,
+`src/evaluation/`, `src/models/baselines.py`, `src/validation/`은 모두 인과적이어야
+하며, `tests/test_leakage.py`가 AST 파싱으로 이를 강제하고 예외가 그 한 파일로
+유지되는지도 함께 검사한다.
 
 `src`는 import 가능한 패키지 루트다. job은 프로젝트 루트에서
 `python -m jobs.<name>` 형태로 실행한다.

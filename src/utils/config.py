@@ -408,6 +408,45 @@ class FeaturesConfig:
 
 
 @dataclass(frozen=True)
+class BaselinesConfig:
+    """Naive reference models (MODEL_SPEC.md section 6)."""
+
+    enabled: tuple[str, ...]
+    drift_min_samples: int
+    rolling_return_window_days: int
+    quantile_lookback_days: int | None
+    quantile_min_samples: int
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "BaselinesConfig":
+        empirical = data.get("empirical_quantile", {}) or {}
+        lookback = empirical.get("lookback_days")
+        config = cls(
+            enabled=tuple(str(name) for name in data.get("enabled", [])),
+            drift_min_samples=int(data.get("drift_min_samples", 365)),
+            rolling_return_window_days=int(data.get("rolling_return_window_days", 90)),
+            quantile_lookback_days=None if lookback in (None, "") else int(lookback),
+            quantile_min_samples=int(empirical.get("min_samples", 60)),
+        )
+        if not config.enabled:
+            raise ConfigError("baselines.enabled must list at least one baseline")
+        if config.quantile_min_samples < 2:
+            raise ConfigError("baselines.empirical_quantile.min_samples must be >= 2")
+        if config.drift_min_samples < 2:
+            raise ConfigError("baselines.drift_min_samples must be >= 2")
+        if config.rolling_return_window_days < 2:
+            raise ConfigError("baselines.rolling_return_window_days must be >= 2")
+        if (
+            config.quantile_lookback_days is not None
+            and config.quantile_lookback_days < config.quantile_min_samples
+        ):
+            raise ConfigError(
+                "baselines.empirical_quantile.lookback_days must be >= min_samples"
+            )
+        return config
+
+
+@dataclass(frozen=True)
 class StorageConfig:
     database_path: Path
 
@@ -432,6 +471,7 @@ class AppConfig:
     data_quality: DataQualityConfig
     forecast: ForecastConfig
     features: FeaturesConfig
+    baselines: BaselinesConfig
     storage: StorageConfig
     raw: Mapping[str, Any] = field(repr=False, default_factory=dict)
 
@@ -477,6 +517,7 @@ def load_config(path: str | Path | None = None) -> AppConfig:
         data_quality=DataQualityConfig.from_dict(raw.get("data_quality", {})),
         forecast=ForecastConfig.from_dict(_require(raw, "forecast", "<root>")),
         features=FeaturesConfig.from_dict(raw.get("features", {})),
+        baselines=BaselinesConfig.from_dict(raw.get("baselines", {})),
         storage=StorageConfig.from_dict(raw.get("storage", {}), paths.data_dir),
         raw=raw,
     )

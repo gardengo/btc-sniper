@@ -175,16 +175,27 @@ def assert_no_test_contamination(
         )
 
 
-def independent_window_count(origin_count: int, horizon_days: int) -> float:
+def independent_window_count(
+    origin_count: int, horizon_days: int, spacing_days: int = 1
+) -> float:
     """Roughly how many non-overlapping target windows a set of origins holds.
 
-    Consecutive daily origins at horizon ``h`` share ``h - 1`` days of their
-    target window, so the effective sample size is far below the row count. This
-    is the number that decides whether a horizon can support a verdict.
+    Two origins ``s`` days apart at horizon ``h`` share ``h - s`` days of their
+    target window, so the effective sample size is::
+
+        origin_count * min(spacing_days, horizon_days) / horizon_days
+
+    Once origins are spaced at least a horizon apart the windows are disjoint and
+    this is just the origin count. The default ``spacing_days=1`` is the daily
+    case, where consecutive origins overlap almost completely and the effective
+    sample size collapses to ``origin_count / horizon_days`` -- the number that
+    decides whether a horizon can support a verdict at all.
     """
     if horizon_days < 1:
         raise SplitError("horizon_days must be >= 1")
-    return origin_count / horizon_days
+    if spacing_days < 1:
+        raise SplitError("spacing_days must be >= 1")
+    return origin_count * min(spacing_days, horizon_days) / horizon_days
 
 
 def describe_split(

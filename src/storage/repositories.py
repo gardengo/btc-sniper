@@ -326,3 +326,76 @@ def feature_coverage(
         "first_date": row["first_date"],
         "last_date": row["last_date"],
     }
+
+
+def upsert_performance_metrics(
+    connection: sqlite3.Connection,
+    frame: pd.DataFrame,
+    *,
+    scope: str,
+    run_id: str = "",
+    computed_at: str | None = None,
+) -> int:
+    """Persist a tidy metric table (one row per metric) into `performance_metrics`.
+
+    Expects the columns produced by `src.evaluation.evaluator`: ``model_version``,
+    ``horizon_days``, ``regime``, ``metric_name``, ``metric_value``,
+    ``sample_size`` and the optional ``period_start`` / ``period_end`` /
+    ``fold``. Upserts on the natural key so re-running an evaluation replaces
+    its own rows instead of accumulating duplicates.
+    """
+    if frame.empty:
+        return 0
+    stamp = computed_at or utc_now_iso()
+    rows = []
+    for record in frame.to_dict("records"):
+        value = record.get("metric_value")
+        rows.append(
+            (
+                stamp,
+                scope,
+                str(record["model_version"]),
+                run_id,
+                int(record.get("horizon_days", -1)),
+                str(record.get("regime", "all")),
+                str(record.get("fold", "all")),
+                str(record["metric_name"]),
+                None if value is None or pd.isna(value) else float(value),
+                int(record.get("sample_size", 0) or 0),
+                record.get("period_start"),
+                record.get("period_end"),
+            )
+        )
+    connection.executemany(
+        "INSERT INTO performance_metrics (computed_at, scope, model_version, run_id, "
+        "horizon_days, regime, fold, metric_name, metric_value, sample_size, "
+        "period_start, period_end) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT (scope, model_version, run_id, horizon_days, regime, fold, metric_name) "
+        "DO UPDATE SET computed_at = excluded.computed_at, "
+        "metric_value = excluded.metric_value, sample_size = excluded.sample_size, "
+        "period_start = excluded.period_start, period_end = excluded.period_end",
+        rows,
+    )
+    logger.info("recorded %d %s metric rows", len(rows), scope)
+    return len(rows)
+
+
+def load_performance_metrics(
+    connection: sqlite3.Connection,
+    *,
+    scope: str,
+    model_version: str | None = None,
+    regime: str = "all",
+) -> pd.DataFrame:
+    """Read metrics back for reporting and model comparison."""
+    query = (
+        "SELECT model_version, horizon_days, regime, fold, metric_name, metric_value, "
+        "sample_size, period_start, period_end, computed_at FROM performance_metrics "
+        "WHERE scope = ? AND regime = ?"
+    )
+    params: list[Any] = [scope, regime]
+    if model_version is not None:
+        query += " AND model_version = ?"
+        params.append(model_version)
+    query += " ORDER BY horizon_days, model_version, metric_name"
+    return pd.read_sql_query(query, connection, params=params)
