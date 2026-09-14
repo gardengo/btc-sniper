@@ -27,6 +27,33 @@ Use a dense horizon grid for a smooth 1-year forecast:
 
 The grid is used for both model outputs and evaluation. Visualization may apply PCHIP interpolation between forecast points.
 
+### 2.1 Band endpoint rule
+
+The band widths are not exact multiples of their spacing: `180 - 90 = 90` is not
+divisible by 7, and `365 - 180 = 185` is not divisible by 14. Stepping forward
+from each band start would therefore drop the band endpoints, and the grid would
+not contain 180 or 365 - both of which section 15 of the project brief and
+`VALIDATION_SPEC.md` require as evaluation horizons.
+
+Each band is therefore **anchored on its end day** and stepped backwards until it
+would reach the previous band:
+
+```text
+band 1:  1..30    step 1   -> 1,2,3,...,30
+band 2:  31..90   step 3   -> 33,36,...,90
+band 3:  91..180  step 7   -> 96,103,...,180
+band 4:  181..365 step 14  -> 183,197,...,365
+```
+
+This yields **77 horizons**. Spacing inside each band is exactly as specified,
+the endpoints 30 / 90 / 180 / 365 are always present, and the only irregularity
+is one shorter gap at each band boundary (90->96 is 6 days, 180->183 is 3 days).
+
+`forecast.horizon_grid_version` in `config.yaml` versions this rule. Changing the
+rule requires a new version so old forecasts stay interpretable.
+
+Implementation: `src/forecast/horizons.py`.
+
 ## 3. Quantiles
 
 For each horizon, predict:
