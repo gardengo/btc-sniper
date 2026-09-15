@@ -15,6 +15,12 @@ promotion gate (CLAUDE.md section 2.3, Phase 8).
 The training cutoff defaults to the purge limit implied by the frozen split, so
 no label can reach into the outer test. Passing `--cutoff` narrows it further;
 it can never widen it.
+
+`--release-outer-test` is the one way to widen it, and it is refused unless this
+exact design already has a recorded outer-test evaluation. Training past the
+purge boundary before the block has been read destroys the only independent
+verdict the dataset can produce, and the resulting model looks entirely normal --
+which is why the check is here rather than in a comment.
 """
 
 from __future__ import annotations
@@ -29,6 +35,11 @@ from src.data.binance import SOURCE as BINANCE_SOURCE
 from src.features.pipeline import build_features
 from src.forecast.horizons import horizon_grid_from_config
 from src.models import registry
+from src.models.promotion import (
+    configuration_fingerprint,
+    configuration_row,
+    evaluated_designs,
+)
 from src.models.training import TrainingRequest, assert_reproducible, train_forecaster
 from src.storage import repositories as repo
 from src.storage.db import open_connection, transaction
@@ -56,6 +67,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="refit one horizon and assert the predictions are identical",
     )
     parser.add_argument(
+        "--release-outer-test",
+        action="store_true",
+        help="train through the newest resolved label (needs a recorded outer-test "
+        "evaluation for this design)",
+    )
+    parser.add_argument(
         "--no-persist", action="store_true", help="train without saving or registering"
     )
     parser.add_argument("--config", default=None, help="path to config.yaml")
@@ -75,6 +92,19 @@ def resolve_horizons(spec: str, config: AppConfig) -> tuple[int, ...]:
     return wanted
 
 
+def _design_was_evaluated(connection, config: AppConfig, strategy: str) -> bool:
+    """Has this exact configuration already had its single outer-test evaluation?"""
+    fingerprint = configuration_fingerprint(
+        configuration_row(
+            config,
+            strategy=strategy,
+            params=dict(config.section("models").get("lightgbm", {})),
+            seed=int(config.section("models").get("random_seed", 42)),
+        )
+    )
+    return fingerprint in evaluated_designs(registry.evaluated_models(connection))
+
+
 def run(config: AppConfig, args: argparse.Namespace) -> int:
     boundaries = SplitBoundaries.from_config(config)
     horizons = resolve_horizons(args.horizons, config)
@@ -90,12 +120,28 @@ def run(config: AppConfig, args: argparse.Namespace) -> int:
 
         features = build_features(frame, config.features)
         usable = features.usable_features()
+        strategy = args.window or str(
+            config.section("models").get("default_training_window", "expanding")
+        )
+        if args.release_outer_test and not _design_was_evaluated(
+            connection, config, strategy
+        ):
+            logger.error(
+                "refusing --release-outer-test: this design has no recorded "
+                "outer-test evaluation, so training past the purge boundary would "
+                "destroy the reserved block before it was ever read "
+                "(VALIDATION_SPEC.md section 4.4). Run "
+                "`python -m jobs.final_evaluation --confirm` first."
+            )
+            return 1
         request = TrainingRequest.from_config(
             config,
             horizons=horizons,
             strategy=args.window,
             cutoff=cutoff,
             suffix=args.suffix,
+            release_outer_test=args.release_outer_test,
+            data_end=frame.index.max() if args.release_outer_test else None,
         )
         logger.info(
             "training %s on %d usable feature rows, window=%s, horizons=%d",

@@ -212,6 +212,39 @@ Ongoing honest measurement after the test comes from logged production
 forecasts (`forecasts` / `forecast_realizations`), not from re-running the
 outer test.
 
+### 4.5 The tested model and the served model are different models
+
+Step 3 above trains the final candidate "using all eligible pre-test data".
+That model exists to be measured, and `jobs.final_evaluation` measures it once.
+It is **not** the model that should be served afterwards: its cutoff is the purge
+boundary, which recedes further into the past every day the system runs.
+
+So there are two models, and their order is fixed:
+
+| | trained through | evaluated on the outer test | serves forecasts |
+| --- | --- | --- | --- |
+| tested model | `origin + horizon + embargo < outer_test_start` | once | no |
+| served model | the newest resolved label | never, and cannot be | yes |
+
+The served model can never be evaluated on the outer test, because its training
+labels cover it. That is acceptable only in this order: the design has already
+been measured by the tested model, and from there the honest record is the logged
+production forecasts (section 4.4). Reversed, it is a disaster that leaves no
+trace -- a model trained past the boundary before the block was read looks
+entirely normal, and the only independent verdict the dataset can produce is gone.
+
+Enforcement: `src/validation/splits.py::post_test_training_origins` is never the
+default path, and both `jobs.train_model --release-outer-test` and
+`jobs.weekly_model_review` refuse to use it unless a model with the same
+configuration fingerprint already carries recorded `test_metrics`
+(`src/models/promotion.py::evaluated_designs`). The fingerprint deliberately
+excludes the training cutoff, so "the same design trained through a later date"
+is recognised as the same design.
+
+The cost is real and worth stating: once a design is released this way, changing
+it needs a fresh reserved block, and this dataset does not have one. That is the
+price of a single honest measurement, and it is the reason the gate exists.
+
 ## 5. Validation overfitting protection
 
 The following are prohibited:

@@ -115,12 +115,25 @@
 
 ## Phase 8. Weekly model review
 
-- [ ] weekly review job
-- [ ] retraining trigger rules
-- [ ] candidate model training
-- [ ] incumbent vs candidate comparison
-- [ ] promotion gate
-- [ ] rejection logging
+- [x] weekly review job (`jobs/weekly_model_review.py`) — OPERATING_SPEC.md 2절
+      순서 그대로. 기본 실행은 후보를 만들고 판단만 하며, `--apply`가 있어야
+      registry의 status를 건드린다.
+- [x] retraining trigger rules — Phase 7의 트리거 테이블을 그대로 읽는다.
+      "일주일이 지났다"는 트리거가 아니다.
+- [x] candidate model training — 트리거가 발화했거나 `--force`일 때만.
+      데이터 품질에 blocking 오류가 있으면 학습 전에 멈춘다.
+- [x] incumbent vs candidate comparison (`src/models/promotion.py`) — 동일한
+      fold에서만 비교하고, fold 번호가 다른 기간을 가리키면 비교를 거부한다.
+- [x] promotion gate — 3개 경로(`bootstrap` / `configuration_change` /
+      `data_refresh`). blend 가중치가 0인 horizon은 보고되지만 판단하지 않는다.
+      coverage는 높낮이가 아니라 nominal과의 거리로 본다.
+- [x] rejection logging — 사유 필수. 게이트가 실패한 검사 이름과 숫자를 만든다.
+- [x] **outer test 단 1회 평가** (`jobs/final_evaluation.py`,
+      `src/evaluation/final_test.py`) — 계획에 없던 단계였다. VALIDATION_SPEC.md
+      4절의 5단계 중 4단계("evaluate once on outer test")에 구현이 없어서,
+      예약 블록이 한 번도 쓰이지 않은 채 production 학습 cutoff가 영원히 purge
+      경계에 묶여 있었다. 평가를 기록해야 그 설계에 한해 cutoff가 풀린다
+      (VALIDATION_SPEC.md 4.5절).
 
 ## Phase 9. Streamlit
 
@@ -147,7 +160,8 @@
 - [x] model reproducibility tests (`tests/test_models.py`) — 동일 데이터 재학습이
       비트 단위로 같은 예측을 내는지. subsample이 꺼져 있으면 seed가 무의미해
       검사가 공허하게 통과한다는 점도 함께 고정했다.
-- [ ] promotion gate tests
+- [x] promotion gate tests (`tests/test_promotion.py`) — 경로 분류,
+      게이트 검사별 veto/advisory, outer test 재평가 거부, purge 해제
 - [ ] Streamlit smoke test
 
 ## Phase 11. Containerization

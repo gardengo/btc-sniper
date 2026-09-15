@@ -40,6 +40,7 @@ from src.validation.splits import (
     SplitBoundaries,
     eligible_training_origins,
     last_eligible_training_origin,
+    post_test_training_origins,
 )
 
 logger = get_logger(__name__)
@@ -102,6 +103,20 @@ class TrainingRequest:
     seed: int
     cutoff: pd.Timestamp | None = None
     suffix: str = ""
+    # Train through the newest resolved label instead of stopping at the outer
+    # test purge. One-way: a model built this way can never be evaluated on the
+    # outer test, so it is only legitimate after the design's single evaluation
+    # has been recorded. The caller must verify that; see
+    # `src/validation/splits.py::post_test_training_origins`.
+    release_outer_test: bool = False
+    data_end: pd.Timestamp | None = None
+
+    def __post_init__(self) -> None:
+        if self.release_outer_test and self.data_end is None:
+            raise TrainingError(
+                "release_outer_test needs data_end: without it there is no limit "
+                "left at all and the labels would read prices that do not exist"
+            )
 
     @classmethod
     def from_config(
@@ -113,6 +128,8 @@ class TrainingRequest:
         cutoff: pd.Timestamp | None = None,
         suffix: str = "",
         params: Mapping[str, Any] | None = None,
+        release_outer_test: bool = False,
+        data_end: pd.Timestamp | None = None,
     ) -> "TrainingRequest":
         models = config.section("models")
         return cls(
@@ -124,6 +141,8 @@ class TrainingRequest:
             seed=int(models.get("random_seed", 42)),
             cutoff=cutoff,
             suffix=suffix,
+            release_outer_test=release_outer_test,
+            data_end=data_end,
         )
 
 
@@ -134,16 +153,34 @@ def training_origins(
     *,
     strategy: str,
     cutoff: pd.Timestamp | None = None,
+    release_outer_test: bool = False,
+    data_end: pd.Timestamp | None = None,
 ) -> pd.DatetimeIndex:
     """Origins a model may train on, after the window and the purge."""
     if len(candidates) == 0:
         return candidates
-    eligible = eligible_training_origins(
-        candidates, boundaries, horizon_days, cutoff=cutoff
-    )
+    if release_outer_test:
+        if data_end is None:
+            raise TrainingError("release_outer_test needs data_end")
+        eligible = post_test_training_origins(
+            candidates, data_end=data_end, horizon_days=horizon_days
+        )
+        if cutoff is not None:
+            eligible = eligible[
+                eligible <= cutoff - pd.Timedelta(days=horizon_days + boundaries.embargo_days)
+            ]
+    else:
+        eligible = eligible_training_origins(
+            candidates, boundaries, horizon_days, cutoff=cutoff
+        )
     if len(eligible) == 0:
         return eligible
-    reference = cutoff if cutoff is not None else boundaries.outer_test_start
+    reference = (
+        cutoff
+        if cutoff is not None
+        else (data_end if release_outer_test and data_end is not None
+              else boundaries.outer_test_start)
+    )
     start = window_start(strategy, reference, candidates.min())
     return eligible[eligible >= start]
 
@@ -156,6 +193,12 @@ def build_matrices(
 ) -> dict[int, TrainingMatrix]:
     """One purged, window-limited training matrix per horizon."""
     candidates = features.dropna(axis=0, how="any").index
+    if request.release_outer_test:
+        logger.warning(
+            "outer-test purge RELEASED: training through %s. This model can never "
+            "be evaluated on the outer test (VALIDATION_SPEC.md section 4.4).",
+            pd.Timestamp(request.data_end).strftime("%Y-%m-%d"),
+        )
     matrices: dict[int, TrainingMatrix] = {}
     for horizon in request.horizons:
         origins = training_origins(
@@ -164,9 +207,17 @@ def build_matrices(
             horizon,
             strategy=request.strategy,
             cutoff=request.cutoff,
+            release_outer_test=request.release_outer_test,
+            data_end=request.data_end,
         )
+        # The contamination assert is the purge; passing boundaries while the
+        # purge has been deliberately released would just make it raise.
         matrix = build_training_matrix(
-            features, close, horizon, origins, boundaries=boundaries
+            features,
+            close,
+            horizon,
+            origins,
+            boundaries=None if request.release_outer_test else boundaries,
         )
         if matrix.rows == 0:
             logger.warning("h=%dd: no training rows after purge; skipped", horizon)
@@ -206,6 +257,8 @@ def train_forecaster(
     effective_cutoff = (
         request.cutoff
         if request.cutoff is not None
+        else max(matrix.origins.max() for matrix in matrices.values())
+        if request.release_outer_test
         else last_eligible_training_origin(boundaries, shortest)
     )
     starts = [matrix.origins.min() for matrix in matrices.values()]

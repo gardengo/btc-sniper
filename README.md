@@ -81,9 +81,26 @@ python -m jobs.generate_forecast --origin 2025-06-30         # 특정 날짜 bac
 # 8. 도래한 target 확정 + production 지표/드리프트
 python -m jobs.evaluate_forecasts
 
+# 9. 동결된 설계를 outer test에서 딱 한 번 평가 (되돌릴 수 없다)
+python -m jobs.final_evaluation --dry-run          # 기계만 확인, 기록 없음
+python -m jobs.final_evaluation --confirm          # outer test를 소비한다
+
+# 10. 주간 모델 리뷰 (reports/weekly_model_review.md)
+python -m jobs.weekly_model_review                 # 판단만 하고 아무것도 바꾸지 않는다
+python -m jobs.weekly_model_review --apply         # 승격/거부를 실제로 적용한다
+python -m jobs.weekly_model_review --force         # 트리거가 없어도 후보를 만든다
+
 # 테스트
 python -m pytest
 ```
+
+**학습 cutoff는 outer test 평가 전후로 달라진다.** 평가 전에는 purge 경계
+(`origin + horizon + embargo < outer_test_start`)에서 멈춘다. 새 데이터가
+아무리 쌓여도 재학습이 같은 model_version을 내놓는다는 뜻이고, 그게 맞다 —
+그 경계를 넘어 학습한 모델은 예약된 블록을 읽어보지도 못한 채 태워버리고,
+겉보기에는 완전히 정상인 모델로 남는다. `jobs.final_evaluation --confirm`이
+평가를 기록하면 그 설계에 한해 cutoff가 풀리고, 이후 모델은 가장 최근에
+label이 확정된 origin까지 학습한다 (`VALIDATION_SPEC.md` 4.5절).
 
 production 지표는 첫 일일 실행부터 쌓인다. 30일 horizon은 30일, 365일 horizon은
 1년이 지나야 말을 한다. 과거 날짜로 forecast를 backfill해도 지름길이 되지 않는다.

@@ -232,6 +232,21 @@ def list_models(
     return pd.read_sql_query(query, connection, params=params)
 
 
+
+def evaluated_models(connection: sqlite3.Connection) -> pd.DataFrame:
+    """Every model that carries a recorded outer-test evaluation.
+
+    Used to answer "has this design already been measured on the reserved
+    block?", which decides whether a new model may train past the purge
+    boundary (VALIDATION_SPEC.md section 4.4).
+    """
+    return pd.read_sql_query(
+        "SELECT * FROM model_registry WHERE test_metrics IS NOT NULL "
+        "AND test_metrics NOT IN ('', '{}', 'null') ORDER BY created_at DESC",
+        connection,
+    )
+
+
 def load_artifact(
     connection: sqlite3.Connection, model_version: str
 ) -> MultiHorizonForecaster:
@@ -359,6 +374,7 @@ def assert_single_production(connection: sqlite3.Connection) -> None:
 __all__ = [
     "RegistryError",
     "assert_single_production",
+    "evaluated_models",
     "finish_run",
     "get",
     "list_models",

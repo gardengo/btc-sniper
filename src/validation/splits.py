@@ -128,6 +128,38 @@ def eligible_training_origins(
     return origins[origins <= limit]
 
 
+def post_test_training_origins(
+    origins: pd.DatetimeIndex,
+    *,
+    data_end: pd.Timestamp,
+    horizon_days: int,
+) -> pd.DatetimeIndex:
+    """Origins for a model that has given up its right to be tested.
+
+    The outer-test purge exists so a model can be evaluated once on a block it
+    has never seen (section 4.1). A model that trains through today has no such
+    block left, and that is a permanent, one-way trade: it can never be given an
+    honest final evaluation again.
+
+    It is still the right model to *serve*, once the design's single outer-test
+    evaluation has been recorded. VALIDATION_SPEC.md section 4.4 says ongoing
+    honest measurement after the test comes from logged production forecasts
+    rather than from re-running the test, which presupposes a deployed model that
+    is no longer the tested one.
+
+    Callers must verify that the evaluation has happened. Nothing in this module
+    can check it -- the record lives in `model_registry.test_metrics` -- so the
+    guard is in `jobs.weekly_model_review` and `jobs.train_model`, and this
+    function is deliberately not the default path anywhere.
+
+    The only limit left is that the label must have resolved: an origin needs its
+    ``t + horizon`` close to exist.
+    """
+    if horizon_days < 1:
+        raise SplitError("horizon_days must be >= 1")
+    return origins[origins <= data_end - pd.Timedelta(days=horizon_days)]
+
+
 def outer_test_origins(
     origins: pd.DatetimeIndex,
     boundaries: SplitBoundaries,

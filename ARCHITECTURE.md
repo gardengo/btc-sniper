@@ -33,6 +33,12 @@ Binance Realtime WebSocket ┘                    │
                                          Promote / Reject
 ```
 
+학습 cutoff는 outer test를 한 번 평가하기 전과 후가 다르다. 평가 전에는 purge
+경계에서 멈추고, `jobs/final_evaluation.py`가 평가를 기록한 뒤에야 해당 설계에
+한해 최신 데이터까지 학습할 수 있다 (VALIDATION_SPEC.md 4.5절). 순서를 뒤집으면
+예약된 블록이 읽히지도 못한 채 사라지고, 그렇게 만들어진 모델은 겉보기에 전혀
+이상하지 않다.
+
 ## 2. 주요 컴포넌트
 
 ### 2.1 Data Ingestion
@@ -94,6 +100,13 @@ baseline, 트리 모델, 운영 예측이 모두 같은 경로(`src/evaluation/e
 outer test 지표는 model_version당 한 번만 기록할 수 있고, 두 번째 시도는
 거부된다 (VALIDATION_SPEC.md 4.4절). 이 규칙을 실제로 강제할 수 있는 곳은
 registry뿐이다.
+
+승격 판단은 `src/models/promotion.py`가 내리고, registry는 그 판단을 집행한다.
+둘을 나눈 이유는 게이트가 순수 함수여야 테스트할 수 있기 때문이다 — 실제
+production 모델을 바꾸지 않고도 "이 숫자면 어떤 결정이 나오는가"를 물을 수 있어야
+한다. 판단의 **근거**도 함께 기록된다. 거부에는 사유가 필수이고, 게이트가 실패한
+검사 이름과 그 숫자를 사유로 만들어준다. 사유 없는 거부는 나중에 아무도 검토할 수
+없는 결정이다.
 
 
 모델 버전별:
@@ -172,13 +185,15 @@ src/
                realtime.py types.py validation.py
   features/    indicators.py groups.py regime.py pipeline.py
   models/      targets.py baselines.py base.py dataset.py lightgbm_model.py
-               forecaster.py training.py registry.py
+               forecaster.py training.py registry.py promotion.py
   validation/  splits.py folds.py
   evaluation/  metrics.py evaluator.py baseline_eval.py walk_forward.py
+               final_test.py
   storage/     schema.sql db.py repositories.py
   forecast/    horizons.py quantiles.py blending.py generate.py interpolate.py
   monitoring/  data_report.py baseline_report.py validation_report.py
                realization.py drift.py performance_report.py markdown.py
+               review_report.py final_report.py
   utils/       config.py logging.py timeutils.py provenance.py
 app/
   streamlit_app.py          (Phase 9)
@@ -192,7 +207,8 @@ jobs/
   walk_forward.py           구현됨
   generate_forecast.py      구현됨
   evaluate_forecasts.py     구현됨
-  weekly_model_review.py    (Phase 8)
+  final_evaluation.py       구현됨
+  weekly_model_review.py    구현됨
 tests/
 ```
 

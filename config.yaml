@@ -342,12 +342,26 @@ operation:
     # Below this many realized forecasts a horizon cannot trigger anything
     # (OPERATING_SPEC.md section 4).
     min_realized_for_drift: 20
+  # The promotion gate (OPERATING_SPEC.md section 5, VALIDATION_SPEC.md 10).
+  # A candidate is judged only at the horizons where `forecast.blend` actually
+  # gives it weight: at 90d the served forecast contains none of the model, so a
+  # number measured there cannot promote or reject anything.
   production_promotion:
     require_validation_improvement: true
     min_improvement_fraction: 0.02
     require_stability_across_folds: true
     require_interval_coverage_not_materially_worse: true
     min_realized_forecasts_per_horizon: 20
+    # Coverage is judged by DISTANCE FROM NOMINAL, not by being higher. A 95%
+    # interval that covers 99% of outcomes is miscalibrated exactly as much as
+    # one covering 91%; it is simply wrong in the direction that feels safe.
+    # A candidate may not sit further from nominal than the reference by more
+    # than this.
+    max_coverage_shortfall: 0.05
+    # "Catastrophic degradation" (VALIDATION_SPEC.md 10), used both for a single
+    # market regime and for a low-power horizon. A low-power horizon cannot
+    # justify a promotion but it can veto one, and this is the bar it vetoes at.
+    max_regime_degradation_fraction: 0.25
 
 storage:
   database: btc_forecast.db
