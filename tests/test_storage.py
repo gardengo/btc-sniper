@@ -12,6 +12,8 @@ import pytest
 from src.data.types import Candle
 from src.storage import repositories as repo
 from src.storage.db import (
+    SCHEMA_VERSION,
+    apply_additive_columns,
     connect,
     get_schema_version,
     init_db,
@@ -36,12 +38,49 @@ EXPECTED_TABLES: set[str] = {
 }
 
 
+def _columns(connection: sqlite3.Connection, table: str) -> set[str]:
+    return {
+        row["name"]
+        for row in connection.execute(f"PRAGMA table_info({table})").fetchall()
+    }
+
+
 class TestSchema:
     def test_every_documented_table_exists(self, connection: sqlite3.Connection) -> None:
         assert EXPECTED_TABLES.issubset(set(table_names(connection)))
 
     def test_schema_version_is_recorded(self, connection: sqlite3.Connection) -> None:
-        assert get_schema_version(connection) == "1"
+        assert get_schema_version(connection) == SCHEMA_VERSION
+
+    def test_a_column_added_after_a_table_shipped_reaches_existing_databases(
+        self, tmp_path: Path
+    ) -> None:
+        """`CREATE TABLE IF NOT EXISTS` is a no-op on a table that already exists.
+
+        Without the additive step a new column would reach fresh databases and
+        silently skip every database already in use, so the same code would read
+        a column that is present on some machines and absent on others.
+        """
+        path = init_db(tmp_path / "old.db")
+        connection = connect(path)
+        try:
+            with transaction(connection):
+                connection.execute(
+                    "ALTER TABLE forecast_points DROP COLUMN blend_source"
+                )
+            assert "blend_source" not in _columns(connection, "forecast_points")
+        finally:
+            connection.close()
+
+        init_db(path)
+        connection = connect(path)
+        try:
+            assert "blend_source" in _columns(connection, "forecast_points")
+        finally:
+            connection.close()
+
+    def test_adding_columns_is_idempotent(self, connection: sqlite3.Connection) -> None:
+        assert apply_additive_columns(connection) == []
 
     def test_init_is_idempotent(self, tmp_path: Path, candles: list[Candle]) -> None:
         path = init_db(tmp_path / "idem.db")

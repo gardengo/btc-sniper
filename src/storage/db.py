@@ -19,7 +19,7 @@ from src.utils.timeutils import utc_now_iso
 logger = get_logger(__name__)
 
 SCHEMA_PATH: Path = Path(__file__).with_name("schema.sql")
-SCHEMA_VERSION: str = "1"
+SCHEMA_VERSION: str = "2"
 
 
 def _apply_pragmas(connection: sqlite3.Connection) -> None:
@@ -79,16 +79,52 @@ def read_schema_sql() -> str:
     return SCHEMA_PATH.read_text(encoding="utf-8")
 
 
+# Columns added to tables that already existed in a shipped schema version.
+# `CREATE TABLE IF NOT EXISTS` is a no-op on an existing table, so a new column
+# would reach fresh databases and silently skip every database already in use --
+# the worst of both, because the code would then read a column that is there on
+# some machines and not others.
+#
+# Kept as a short explicit list rather than a migration framework: these are
+# additive, nullable columns, and a column that already exists is skipped. A
+# change that needs more than this (a dropped column, a changed type, a
+# backfill) needs a real migration and a new `split_version`-style decision,
+# not another entry here.
+ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("forecast_points", "model_weight", "REAL"),
+    ("forecast_points", "blend_source", "TEXT"),
+)
+
+
+def apply_additive_columns(connection: sqlite3.Connection) -> list[str]:
+    """Add any missing additive column, returning the ones actually added."""
+    added: list[str] = []
+    for table, column, column_type in ADDED_COLUMNS:
+        existing = {
+            row["name"]
+            for row in connection.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+        if not existing or column in existing:
+            continue
+        connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
+        added.append(f"{table}.{column}")
+    if added:
+        logger.info("added %d missing column(s): %s", len(added), ", ".join(added))
+    return added
+
+
 def init_db(database_path: Path | str) -> Path:
     """Create the schema if missing and record the schema version.
 
-    Idempotent: every statement in ``schema.sql`` uses ``IF NOT EXISTS``.
+    Idempotent: every statement in ``schema.sql`` uses ``IF NOT EXISTS``, and
+    columns added after a table first shipped go through `apply_additive_columns`.
     """
     path = Path(database_path)
     connection = connect(path)
     try:
         with transaction(connection):
             connection.executescript(read_schema_sql())
+            apply_additive_columns(connection)
             connection.execute(
                 "INSERT INTO schema_meta (key, value, updated_at) VALUES (?, ?, ?) "
                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "

@@ -172,6 +172,11 @@ CREATE TABLE IF NOT EXISTS forecasts (
 CREATE INDEX IF NOT EXISTS idx_forecasts_origin
     ON forecasts (forecast_origin_date DESC);
 
+-- `model_weight` / `blend_source` record what produced each point
+-- (ARCHITECTURE.md section 2.4). The blend weights are frozen in config, so they
+-- could be recomputed at read time -- but only under the config in force *now*,
+-- which would silently relabel a forecast made under an earlier one. Provenance
+-- that changes when you change the config is not provenance.
 CREATE TABLE IF NOT EXISTS forecast_points (
     forecast_id          TEXT    NOT NULL
         REFERENCES forecasts (forecast_id) ON DELETE CASCADE,
@@ -180,6 +185,8 @@ CREATE TABLE IF NOT EXISTS forecast_points (
     predicted_log_return REAL    NOT NULL,
     predicted_price      REAL    NOT NULL,
     direction_predicted  INTEGER,
+    model_weight         REAL,
+    blend_source         TEXT,
     PRIMARY KEY (forecast_id, horizon_days)
 );
 

@@ -172,10 +172,23 @@ yet computable stores as SQL NULL rather than disappearing from the row.
 schema, so quantiles are rows in `forecast_quantiles` keyed by
 `quantile_label`, and per-horizon median values live in `forecast_points`.
 
+**Why each forecast point stores its own provenance.** `forecast_points` carries
+`model_weight` and `blend_source`, so a stored number always says whether it came
+from the model, from the baseline, or from a blend of the two (ARCHITECTURE.md
+section 2.4). The blend weights are frozen in `config.yaml` and could therefore
+be recomputed at read time -- but only under the config in force *now*, which
+would relabel a forecast made under an earlier one. Provenance that changes when
+you change the config is not provenance.
+
 Column conventions:
 
 - `*_ms` columns are epoch milliseconds (UTC).
 - `*_date` and `*_at` columns are ISO-8601 UTC strings.
+- Columns added after a table first shipped go through
+  `src/storage/db.py::ADDED_COLUMNS`. `CREATE TABLE IF NOT EXISTS` is a no-op on
+  an existing table, so a new column would otherwise reach fresh databases and
+  silently skip every database already in use. The list is for additive,
+  nullable columns only; anything more needs a real migration.
 - `performance_metrics` uses the sentinel values `'all'` and `-1` instead of
   NULL in its uniqueness key, because SQLite treats NULLs as distinct inside a
   UNIQUE constraint and upserts would silently duplicate.

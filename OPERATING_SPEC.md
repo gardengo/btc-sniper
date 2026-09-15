@@ -263,6 +263,27 @@ is a data problem, not a resolved forecast, and it is logged as one.
 
 ## 8. Streamlit behavior
 
+Implemented in `app/`. Three properties hold across every page.
+
+**Read-only.** The database is opened through a read-only URI, so no interaction
+can change a stored forecast or promote a model. Those are job decisions.
+
+**Empty states explain themselves.** For most of this system's first year the
+production tables are empty, and a page that renders blank in that state is
+indistinguishable from a broken one. Every empty table says which job fills it
+and why it is empty now. The smoke test in `tests/test_dashboard.py` renders all
+three pages against a database with nothing in it.
+
+**Interpolated values are drawn, never quoted.** The bands are PCHIP curves
+through the forecast grid so the eye can follow them between horizons; every
+number in a table comes from a real grid horizon (CLAUDE.md section 5).
+
+Scopes are never merged. Production, validation and outer-test metrics answer
+different questions -- what the deployed model has done, what the design was
+worth on the folds that selected it, and the single independent verdict -- so
+they sit in separate tabs with the difference stated.
+
+
 ### Dashboard
 
 Show:

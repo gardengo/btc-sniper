@@ -90,9 +90,18 @@ python -m jobs.weekly_model_review                 # 판단만 하고 아무것�
 python -m jobs.weekly_model_review --apply         # 승격/거부를 실제로 적용한다
 python -m jobs.weekly_model_review --force         # 트리거가 없어도 후보를 만든다
 
+# 11. 대시보드
+.venv/Scripts/python.exe -m streamlit run app/streamlit_app.py
+
 # 테스트
 python -m pytest
 ```
+
+대시보드는 DB를 **read-only**로 연다. 페이지에서 뭘 누르든 저장된 forecast가
+바뀌거나 모델이 승격되지 않는다. 그건 job의 결정이다. 현재가는
+`jobs.stream_realtime_price`가 저장해 둔 tick을 읽어서 보여주고, 오래됐으면
+오래됐다고 표시한다 — 페이지가 직접 거래소를 호출하면 열린 탭 수만큼 API를
+때리게 되고, 장애가 나면 가격이 낡은 게 아니라 대시보드가 고장 난 것처럼 보인다.
 
 **학습 cutoff는 outer test 평가 전후로 달라진다.** 평가 전에는 purge 경계
 (`origin + horizon + embargo < outer_test_start`)에서 멈춘다. 새 데이터가

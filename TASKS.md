@@ -137,13 +137,24 @@
 
 ## Phase 9. Streamlit
 
-- [ ] Dashboard
-- [ ] Prediction Log
-- [ ] Model Performance
-- [ ] historical/future combined chart
-- [ ] interval bands
-- [ ] current model summary
-- [ ] forecast revision chart
+- [x] Dashboard (`app/views/dashboard.py`) — 현재가(신선도 표시), forecast anchor,
+      production 모델. production 모델이 없으면 "연구용 출력"이라고 경고한다.
+- [x] Prediction Log (`app/views/prediction_log.py`) — 상태/horizon/날짜 필터.
+      미확정 행을 숨기지 않는다. 숨기면 이미 아는 답만 모은 목록이 된다.
+- [x] Model Performance (`app/views/model_performance.py`) — production /
+      validation / outer test를 **섞지 않고** 따로 보여준다. 서로 다른 질문에
+      답하는 숫자들이다.
+- [x] historical/future combined chart (`app/charts.py`) — 과거 실제가와 미래
+      band를 다른 색으로 그리고 NOW marker를 찍는다.
+- [x] interval bands — 50/80/95%. 넓은 band일수록 옅게.
+- [x] current model summary — 1M/3M/6M/12M 표 + 각 horizon을 무엇이 만들었는지
+- [x] forecast revision chart — 같은 horizon이 origin마다 어떻게 움직였는지.
+      채점이 가능해지기 훨씬 전에 볼 수 있는 신호다.
+- [x] forecast point provenance 저장 (`forecast_points.model_weight`,
+      `blend_source`) — Phase 6이 point마다 출처를 만들어 놓고 저장은 하지
+      않고 있었다. ARCHITECTURE.md 2.4절이 저장된다고 적어둔 것이라 맞췄다.
+      config에서 다시 계산할 수도 있지만 그건 *지금* config 기준이라,
+      과거 forecast에 다른 라벨을 붙이게 된다.
 
 ## Phase 10. Testing
 
@@ -162,7 +173,9 @@
       검사가 공허하게 통과한다는 점도 함께 고정했다.
 - [x] promotion gate tests (`tests/test_promotion.py`) — 경로 분류,
       게이트 검사별 veto/advisory, outer test 재평가 거부, purge 해제
-- [ ] Streamlit smoke test
+- [x] Streamlit smoke test (`tests/test_dashboard.py`) —
+      `streamlit.testing`로 3개 페이지를 합성 DB에 대해 실제로 렌더링한다.
+      데이터가 하나도 없는 상태에서도 예외 없이 이유를 설명하는지 포함.
 
 ## Phase 11. Containerization
 

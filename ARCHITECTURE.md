@@ -196,7 +196,10 @@ src/
                review_report.py final_report.py
   utils/       config.py logging.py timeutils.py provenance.py
 app/
-  streamlit_app.py          (Phase 9)
+  streamlit_app.py          구현됨 (진입점, 페이지는 config에서 온다)
+  data_access.py            read-only DB 접근 — streamlit import 없음
+  charts.py                 plotly figure — streamlit import 없음
+  views/                    dashboard.py prediction_log.py model_performance.py
 jobs/
   update_market_data.py     구현됨
   build_features.py         구현됨
@@ -220,3 +223,8 @@ tests/
 
 `src`는 import 가능한 패키지 루트다. job은 프로젝트 루트에서
 `python -m jobs.<name>` 형태로 실행한다.
+
+`app`은 DB를 **read-only URI로만** 연다. 대시보드에서 클릭해서 forecast를 바꾸거나
+모델을 승격시킬 수 있으면 안 되기 때문이다 — 그건 job의 결정이지 페이지의 결정이
+아니다. 로직은 `data_access.py`/`charts.py`에 있고 이 둘은 streamlit을 import하지
+않는다. 그래서 페이지가 내놓는 답을 아무것도 렌더링하지 않고 테스트할 수 있다.

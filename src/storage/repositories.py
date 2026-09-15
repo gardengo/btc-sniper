@@ -457,8 +457,8 @@ def upsert_forecast(
     )
     connection.executemany(
         "INSERT INTO forecast_points (forecast_id, horizon_days, target_date, "
-        "predicted_log_return, predicted_price, direction_predicted) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
+        "predicted_log_return, predicted_price, direction_predicted, "
+        "model_weight, blend_source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         [
             (
                 forecast.forecast_id,
@@ -467,6 +467,8 @@ def upsert_forecast(
                 float(row["predicted_log_return"]),
                 float(row["predicted_price"]),
                 int(row["direction_predicted"]),
+                None if row.get("model_weight") is None else float(row["model_weight"]),
+                None if row.get("source") is None else str(row["source"]),
             )
             for row in forecast.points.to_dict("records")
         ],
@@ -522,17 +524,26 @@ def load_forecast_points(
 ) -> pd.DataFrame:
     return pd.read_sql_query(
         "SELECT horizon_days, target_date, predicted_log_return, predicted_price, "
-        "direction_predicted FROM forecast_points WHERE forecast_id = ? "
-        "ORDER BY horizon_days",
+        "direction_predicted, model_weight, blend_source FROM forecast_points "
+        "WHERE forecast_id = ? ORDER BY horizon_days",
         connection,
         params=[forecast_id],
     )
 
 
 def load_forecast_quantiles(
-    connection: sqlite3.Connection, forecast_id: str
+    connection: sqlite3.Connection,
+    forecast_id: str,
+    *,
+    value_column: str = "predicted_price",
 ) -> pd.DataFrame:
-    """Wide quantile matrix (prices) indexed by horizon."""
+    """Wide quantile matrix indexed by horizon, in prices or in log returns.
+
+    The chart needs log returns because interpolation happens in return space
+    (MODEL_SPEC.md section 9); the tables need prices. Same rows either way.
+    """
+    if value_column not in {"predicted_price", "predicted_log_return"}:
+        raise ValueError(f"unknown value_column {value_column!r}")
     long = pd.read_sql_query(
         "SELECT horizon_days, quantile, predicted_log_return, predicted_price "
         "FROM forecast_quantiles WHERE forecast_id = ? ORDER BY horizon_days, quantile",
@@ -542,7 +553,7 @@ def load_forecast_quantiles(
     if long.empty:
         return long
     return long.pivot(
-        index="horizon_days", columns="quantile", values="predicted_price"
+        index="horizon_days", columns="quantile", values=value_column
     ).sort_index()
 
 
